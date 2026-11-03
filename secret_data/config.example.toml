@@ -1,0 +1,10 @@
+[bot]
+token = "123456789:AAExampleToken"
+creator_id = 123456789
+
+[postgres]
+host = "localhost"
+port = 5432
+user = "postgres"
+password = "postgres"
+name = "timetabler"

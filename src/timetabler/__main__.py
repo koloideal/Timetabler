@@ -1,0 +1,72 @@
+import asyncio
+import os
+import sys
+from logging import Logger, getLogger
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.enums.parse_mode import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
+from dishka import make_async_container
+from dishka.integrations.aiogram import setup_dishka
+
+from timetabler.infrastructure.config import load_config
+from timetabler.infrastructure.config.models import Config
+from timetabler.infrastructure.ioc import DatabaseProvider, ServicesProvider
+from timetabler.infrastructure.logging.logger import setup_logging
+from timetabler.presentation.middlewares.check_ban import CheckBanMiddleware
+from timetabler.presentation.middlewares.reject_not_admin import RejectNotAdminMiddleware
+
+config: Config = load_config("secret_data/config.toml")
+
+session = AiohttpSession()
+bot: Bot = Bot(
+    token=config.bot.token,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    session=session,
+)
+
+logger: Logger = getLogger("main")
+os.makedirs("logs", exist_ok=True)
+setup_logging("secret_data/logger-config.json")
+
+container = make_async_container(
+    DatabaseProvider(),
+    ServicesProvider(),
+    context={Config: config, Bot: bot},
+)
+
+dp: Dispatcher = Dispatcher(storage=MemoryStorage())
+
+
+async def main() -> None:
+    from timetabler.presentation.admin_handlers import admin_router
+    from timetabler.presentation.group_handlers import group_router
+    from timetabler.presentation.user_handlers import user_router
+
+    dp.include_routers(user_router, admin_router, group_router)
+
+    admin_router.message.middleware(RejectNotAdminMiddleware())
+    dp.update.middleware(CheckBanMiddleware())
+
+    setup_dishka(router=dp, container=container, auto_inject=True)
+
+    async with container() as nested_container:
+        from timetabler.application.services.bot import BotService
+        bot_service = await nested_container.get(BotService)
+        await bot_service.process_set_commands()
+
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    logger.critical("Starting Timetabler...")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.critical("End of work...")

@@ -11,5 +11,10 @@ wheels/
 
 # secret data
 .env
-secret_data
+secret_data/config.toml
 test.py
+
+logs
+.idea
+.vscode
+.*cache
