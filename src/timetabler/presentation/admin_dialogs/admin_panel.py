@@ -7,6 +7,7 @@ from aiogram_dialog import Dialog, DialogManager, Window
 from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import (
     Button,
+    Row,
     ScrollingGroup,
     Select,
     SwitchTo,
@@ -476,8 +477,10 @@ admin_panel_dialog = Dialog(
         ),
         SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
         SwitchTo(Const("🛡 Админы"), id="sec_admins", state=AdminPanelSG.admins_list, when="is_creator"),
-        SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
-        SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
+        Row(
+            SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
+            SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
+        ),
         state=AdminPanelSG.main,
         getter=get_admin_main_data,
     ),

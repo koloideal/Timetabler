@@ -1,0 +1,2 @@
+class TimetableParseError(Exception):
+    pass
