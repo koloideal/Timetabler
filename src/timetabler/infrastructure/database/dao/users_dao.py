@@ -41,6 +41,11 @@ class UsersDAO:
         result = await self.session.execute(query)
         return [self._map_to_domain(u) for u in result.scalars().all()]
 
+    async def get_admins(self) -> list[User]:
+        query = select(OrmUser).where(OrmUser.is_admin)
+        result = await self.session.execute(query)
+        return [self._map_to_domain(u) for u in result.scalars().all()]
+
     async def get_subscribed_to_group(self, group: str) -> list[User]:
         query = select(OrmUser).where(OrmUser.groups.any(literal(group)))
         result = await self.session.execute(query)

@@ -5,6 +5,7 @@ from dishka import Provider, Scope, provide
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from timetabler.application.services.bot import BotService
+from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.config import new_session_maker
@@ -45,3 +46,7 @@ class ServicesProvider(Provider):
     @provide
     def get_bot_service(self, bot: Bot, config: Config) -> BotService:
         return BotService(bot, config)
+
+    @provide
+    def get_group_chat_service(self, group_chats_dao: GroupChatsDAO) -> GroupChatService:
+        return GroupChatService(group_chats_dao)

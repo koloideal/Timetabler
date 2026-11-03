@@ -8,6 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram_dialog import setup_dialogs
 from dishka import make_async_container
 from dishka.integrations.aiogram import setup_dishka
 
@@ -41,15 +42,18 @@ dp: Dispatcher = Dispatcher(storage=MemoryStorage())
 
 
 async def main() -> None:
+    from timetabler.presentation.admin_dialogs import admin_panel_dialog
     from timetabler.presentation.admin_handlers import admin_router
     from timetabler.presentation.group_handlers import group_router
     from timetabler.presentation.user_handlers import user_router
 
-    dp.include_routers(user_router, admin_router, group_router)
+    dp.include_routers(user_router, admin_router, group_router, admin_panel_dialog)
 
     admin_router.message.middleware(RejectNotAdminMiddleware())
+    admin_panel_dialog.callback_query.middleware(RejectNotAdminMiddleware())
     dp.update.middleware(CheckBanMiddleware())
 
+    setup_dialogs(dp)
     setup_dishka(router=dp, container=container, auto_inject=True)
 
     async with container() as nested_container:
