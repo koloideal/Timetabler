@@ -5,6 +5,7 @@ from dishka import Provider, Scope, provide
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from timetabler.application.services.bot import BotService
+from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.timetable import TimetableService
@@ -73,6 +74,18 @@ class ServicesProvider(Provider):
     @provide
     def get_study_group_service(self, study_groups_dao: StudyGroupsDAO) -> StudyGroupService:
         return StudyGroupService(study_groups_dao)
+
+    @provide
+    def get_broadcast_service(
+        self,
+        bot: Bot,
+        app_config: AppConfig,
+        users_dao: UsersDAO,
+        group_chats_dao: GroupChatsDAO,
+        study_groups_dao: StudyGroupsDAO,
+        timetables_dao: TimetablesDAO,
+    ) -> BroadcastService:
+        return BroadcastService(bot, app_config, users_dao, group_chats_dao, study_groups_dao, timetables_dao)
 
     @provide
     def get_timetable_service(

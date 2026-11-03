@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from timetabler.domain.schemas import ParsedTimetable, Timetable
+from timetabler.domain.schemas import ParsedTimetable, Timetable, TimetableEntry
 from timetabler.infrastructure.database.models import (
     Timetable as OrmTimetable,
 )
@@ -76,6 +76,42 @@ class TimetablesDAO:
         query = select(OrmTimetable.for_date).order_by(OrmTimetable.for_date)
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def get_entries(self, for_date: date) -> list[TimetableEntry]:
+        timetable = await self.get_by_date(for_date)
+        if not timetable:
+            return []
+        query = (
+            select(OrmTimetableEntry)
+            .where(OrmTimetableEntry.timetable_id == timetable.id)
+            .order_by(OrmTimetableEntry.study_group_id, OrmTimetableEntry.position, OrmTimetableEntry.subgroup)
+        )
+        result = await self.session.execute(query)
+        return [
+            TimetableEntry(
+                group_id=e.study_group_id,
+                date=for_date,
+                position=e.position,
+                subject=e.subject,
+                teacher=e.teacher,
+                audience=e.audience,
+                starts_at=e.starts_at,
+                subgroup=e.subgroup,
+            )
+            for e in result.scalars().all()
+        ]
+
+    async def get_base_audiences(self, for_date: date) -> dict[int, str]:
+        timetable = await self.get_by_date(for_date)
+        if not timetable:
+            return {}
+        query = select(OrmTimetableGroup).where(OrmTimetableGroup.timetable_id == timetable.id)
+        result = await self.session.execute(query)
+        return {
+            g.study_group_id: g.base_audience
+            for g in result.scalars().all()
+            if g.base_audience
+        }
 
     @staticmethod
     def _map_to_domain(orm_timetable: OrmTimetable) -> Timetable:

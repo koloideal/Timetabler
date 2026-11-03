@@ -2,8 +2,15 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
-from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 
+from timetabler.application.services.timetable import ImportResult
 from timetabler.domain.schemas import User
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.dao import UsersDAO
@@ -46,16 +53,37 @@ class BotService:
             except TelegramForbiddenError:
                 logger.warning("Cannot set commands for admin %s: bot is blocked", admin.user_id)
 
-    async def notify_creator(self, text: str) -> None:
+    async def send_upload_review(self, uploader: User, filename: str, result: ImportResult) -> None:
+        username = f"@{uploader.username}" if uploader.username else str(uploader.user_id)
+        dates = ", ".join(d.strftime("%d.%m.%Y") for d in result.dates)
+        for_date = result.dates[0].isoformat()
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Разослать", callback_data=f"tt_ok:{for_date}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"tt_no:{for_date}"),
+        ]])
+        await self.notify_creator(
+            "📥 <b>НОВОЕ РАСПИСАНИЕ</b>\n"
+            f"<pre>ОТ      {username}\nФАЙЛ    {filename}\nДАТЫ    {dates}\nПАР     {result.lessons}\nГРУПП   {result.groups}</pre>",
+            reply_markup=keyboard,
+        )
+
+    async def notify_creator_upload_failed(self, uploader: User, filename: str, error: str) -> None:
+        username = f"@{uploader.username}" if uploader.username else str(uploader.user_id)
+        await self.notify_creator(
+            "⚠️ <b>НЕУДАЧНАЯ ЗАГРУЗКА</b>\n"
+            f"<pre>ОТ      {username}\nФАЙЛ    {filename}\nОШИБКА  {error}</pre>"
+        )
+
+    async def notify_creator(self, text: str, reply_markup=None) -> None:
         try:
-            await self.bot.send_message(self.config.bot.creator_id, text)
+            await self.bot.send_message(self.config.bot.creator_id, text, reply_markup=reply_markup)
         except TelegramForbiddenError:
             logger.warning("Cannot notify creator %s: bot is blocked", self.config.bot.creator_id)
 
     async def notify_new_user(self, user: User) -> None:
         username = f"@{user.username}" if user.username else "—"
         await self.notify_creator(
-            f"🆕 Новый юзер\n<blockquote>• Username: {username}\n• ID: <code>{user.user_id}</code></blockquote>"
+            f"🆕 <b>НОВЫЙ ЮЗЕР</b>\n<pre>USERNAME  {username}\nID        {user.user_id}</pre>"
         )
 
     async def notify_admin_assigned(self, user_id: int) -> None:

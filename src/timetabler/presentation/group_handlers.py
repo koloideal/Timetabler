@@ -18,7 +18,8 @@ group_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP
 @group_router.message(Command("start"))
 async def group_start(message: Message) -> None:
     await message.answer(
-        "👋 Привет! Я буду присылать расписание в этот чат.\n\n"
+        "👋 <b>TIMETABLER</b>\n━━━━━━━━━━━━━━━━━━\n"
+        "Буду присылать расписание в этот чат.\n\n"
         "<i>Настройка групп появится позже.</i>"
     )
 

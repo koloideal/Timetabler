@@ -341,9 +341,11 @@ async def get_groups_list_data(
     **kwargs: Any,
 ) -> dict[str, Any]:
     groups = await study_group_service.list_groups()
-    groups_data = [(g.display_name, str(g.group_id)) for g in groups]
+    groups_alias = [(g.display_name, str(g.group_id)) for g in groups if g.alias]
+    groups_plain = [(str(g.group_id), str(g.group_id)) for g in groups if not g.alias]
     return {
-        "groups": groups_data,
+        "groups_alias": groups_alias,
+        "groups_plain": groups_plain,
         "total_groups": len(groups),
         "is_creator": _is_creator(dialog_manager, config),
     }
@@ -473,8 +475,11 @@ async def on_group_delete_confirm(
 admin_panel_dialog = Dialog(
     Window(
         Format(
-            "🛠 <b>Админ-панель</b>\n\n"
-            "<pre>👤 {total_users} юзеров | 🏫 {total_chats} чатов</pre>\n\n"
+            "🛠 <b>АДМИН-ПАНЕЛЬ</b>\n"
+            "<pre>━━━━━━━━━━━━━━━━━━\n"
+            "ЮЗЕРОВ    {total_users}\n"
+            "ЧАТОВ     {total_chats}\n"
+            "━━━━━━━━━━━━━━━━━━</pre>\n"
             "Выберите раздел:"
         ),
         SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
@@ -487,7 +492,7 @@ admin_panel_dialog = Dialog(
         getter=get_admin_main_data,
     ),
     Window(
-        Format("👤 <b>Пользователи</b> | Всего: {total_users}"),
+        Format("👤 <b>ПОЛЬЗОВАТЕЛИ</b> · {total_users}\n━━━━━━━━━━━━━━━━━━"),
         ScrollingGroup(
             Select(
                 Format("{item[0]}"),
@@ -506,7 +511,7 @@ admin_panel_dialog = Dialog(
         getter=get_users_list_data,
     ),
     Window(
-        Format("🛡 <b>Админы</b> | Всего: {total_admins}"),
+        Format("🛡 <b>АДМИНЫ</b> · {total_admins}\n━━━━━━━━━━━━━━━━━━"),
         ScrollingGroup(
             Select(
                 Format("{item[0]}"),
@@ -526,7 +531,7 @@ admin_panel_dialog = Dialog(
         getter=get_admins_list_data,
     ),
     Window(
-        Format("➕ <b>Добавить админа</b> | Кандидатов: {total_candidates}\n\nВыберите пользователя:"),
+        Format("➕ <b>ДОБАВИТЬ АДМИНА</b> · {total_candidates}\n━━━━━━━━━━━━━━━━━━\nВыберите пользователя:"),
         ScrollingGroup(
             Select(
                 Format("{item[0]}"),
@@ -545,7 +550,7 @@ admin_panel_dialog = Dialog(
         getter=get_add_admin_pick_data,
     ),
     Window(
-        Format("Назначить {username} <code>({user_id})</code> админом?"),
+        Format("⭐ <b>НАЗНАЧИТЬ АДМИНОМ?</b>\n<pre>ЮЗЕР    {username}\nID      {user_id}</pre>"),
         Button(Const("✅ Назначить"), id="confirm_add_admin", on_click=on_add_admin_confirm),
         SwitchTo(Const("⬅️ Назад"), id="back_pick", state=AdminPanelSG.add_admin_pick),
         state=AdminPanelSG.add_admin_confirm,
@@ -553,13 +558,15 @@ admin_panel_dialog = Dialog(
     ),
     Window(
         Format(
-            "👤 <b>Пользователь</b>\n\n"
-            "<blockquote>• ID: <code>{user_id}</code>\n"
-            "• Username: {username}\n"
-            "• Зарегистрирован: {registered_at}\n"
-            "• Группы: {groups}\n"
-            "• Админ: {admin_status}\n"
-            "• Статус: {ban_status}</blockquote>"
+            "👤 <b>ПОЛЬЗОВАТЕЛЬ</b>\n"
+            "<pre>━━━━━━━━━━━━━━━━━━\n"
+            "ID        {user_id}\n"
+            "USERNAME  {username}\n"
+            "REG       {registered_at}\n"
+            "ГРУППЫ    {groups}\n"
+            "РОЛЬ      {admin_status}\n"
+            "СТАТУС    {ban_status}\n"
+            "━━━━━━━━━━━━━━━━━━</pre>"
         ),
         Button(
             Format("{ban_button_text}"),
@@ -578,7 +585,7 @@ admin_panel_dialog = Dialog(
         getter=get_user_detail_data,
     ),
     Window(
-        Format("🏫 <b>Чаты</b> | Всего: {total_chats}"),
+        Format("🏫 <b>ЧАТЫ</b> · {total_chats}\n━━━━━━━━━━━━━━━━━━"),
         ScrollingGroup(
             Select(
                 Format("{item[0]}"),
@@ -598,29 +605,44 @@ admin_panel_dialog = Dialog(
     ),
     Window(
         Format(
-            "🏫 <b>Чат</b>\n\n"
-            "<blockquote>• Название: {title}\n"
-            "• ID: <code>{chat_id}</code>\n"
-            "• Добавлен: {added_at}\n"
-            "• Группы: {groups}</blockquote>"
+            "🏫 <b>ЧАТ</b>\n"
+            "<pre>━━━━━━━━━━━━━━━━━━\n"
+            "НАЗВАНИЕ  {title}\n"
+            "ID        {chat_id}\n"
+            "ДОБАВЛЕН  {added_at}\n"
+            "ГРУППЫ    {groups}\n"
+            "━━━━━━━━━━━━━━━━━━</pre>"
         ),
         SwitchTo(Const("⬅️ Назад"), id="back_to_chats", state=AdminPanelSG.chats_list),
         state=AdminPanelSG.chat_detail,
         getter=get_chat_detail_data,
     ),
     Window(
-        Format("📚 <b>Группы</b> | Всего: {total_groups}"),
+        Format("📚 <b>ГРУППЫ</b> · {total_groups}\n━━━━━━━━━━━━━━━━━━"),
         ScrollingGroup(
             Select(
                 Format("{item[0]}"),
-                id="group_select",
+                id="group_select_a",
                 item_id_getter=lambda x: x[1],
-                items="groups",
+                items="groups_alias",
                 on_click=on_group_selected,
             ),
-            id="groups_scroll",
+            id="groups_alias_scroll",
             width=1,
-            height=7,
+            height=4,
+            hide_on_single_page=True,
+        ),
+        ScrollingGroup(
+            Select(
+                Format("{item[0]}"),
+                id="group_select_p",
+                item_id_getter=lambda x: x[1],
+                items="groups_plain",
+                on_click=on_group_selected,
+            ),
+            id="groups_plain_scroll",
+            width=3,
+            height=6,
             hide_on_single_page=True,
         ),
         SwitchTo(Const("➕ Добавить группу"), id="add_group", state=AdminPanelSG.group_add_id, when="is_creator"),
@@ -630,10 +652,12 @@ admin_panel_dialog = Dialog(
     ),
     Window(
         Format(
-            "📚 <b>Группа</b>\n\n"
-            "<blockquote>• ID: <code>{group_id}</code>\n"
-            "• Алиас: {alias}\n"
-            "• Создана: {created_at}</blockquote>"
+            "📚 <b>ГРУППА</b>\n"
+            "<pre>━━━━━━━━━━━━━━━━━━\n"
+            "ID        {group_id}\n"
+            "АЛИАС     {alias}\n"
+            "СОЗДАНА   {created_at}\n"
+            "━━━━━━━━━━━━━━━━━━</pre>"
         ),
         SwitchTo(Const("🗑 Удалить группу"), id="del_group", state=AdminPanelSG.group_del_confirm, when="is_creator"),
         SwitchTo(Const("⬅️ Назад"), id="back_groups", state=AdminPanelSG.groups_list),
@@ -641,7 +665,7 @@ admin_panel_dialog = Dialog(
         getter=get_group_detail_data,
     ),
     Window(
-        Format("Удалить группу <code>{group_id}</code> ({alias})?"),
+        Format("🗑 <b>УДАЛИТЬ ГРУППУ?</b>\n<pre>ID      {group_id}\nАЛИАС   {alias}</pre>"),
         Button(Const("✅ Удалить"), id="confirm_del_group", on_click=on_group_delete_confirm),
         SwitchTo(Const("⬅️ Назад"), id="back_group_detail", state=AdminPanelSG.group_detail),
         state=AdminPanelSG.group_del_confirm,
@@ -649,7 +673,7 @@ admin_panel_dialog = Dialog(
     ),
     Window(
         Const(
-            "➕ <b>Новая группа</b>\n\n"
+            "➕ <b>НОВАЯ ГРУППА</b>\n━━━━━━━━━━━━━━━━━━\n"
             "Введите ID группы — 4 цифры (например, 1125):"
         ),
         MessageInput(on_add_group_id_input, content_types=["text"]),
@@ -658,7 +682,7 @@ admin_panel_dialog = Dialog(
     ),
     Window(
         Const(
-            "➕ <b>Новая группа</b>\n\n"
+            "➕ <b>НОВАЯ ГРУППА</b>\n━━━━━━━━━━━━━━━━━━\n"
             "Введите алиас для группы или пропустите:"
         ),
         MessageInput(on_add_group_alias_input, content_types=["text"]),

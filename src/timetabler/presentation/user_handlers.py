@@ -26,7 +26,8 @@ async def start(
     if is_new:
         await bot_service.notify_new_user(user)
     await message.answer(
-        "👋 Привет! Я <b>Timetabler</b> — рассылаю расписание подписчикам.\n\n"
+        "👋 <b>TIMETABLER</b>\n━━━━━━━━━━━━━━━━━━\n"
+        "Рассылаю расписание подписчикам.\n\n"
         "Справка: /help"
     )
 
