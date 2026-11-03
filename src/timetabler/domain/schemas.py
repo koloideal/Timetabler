@@ -21,6 +21,17 @@ class GroupChat:
 
 
 @dataclass
+class StudyGroup:
+    group_id: int
+    alias: str | None
+    created_at: datetime
+
+    @property
+    def display_name(self) -> str:
+        return f"{self.group_id} — {self.alias}" if self.alias else str(self.group_id)
+
+
+@dataclass
 class TimetableEntry:
     date: date
     group: str

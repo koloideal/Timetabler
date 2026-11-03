@@ -6,15 +6,17 @@ class UserService:
     def __init__(self, users_dao: UsersDAO) -> None:
         self.users_dao = users_dao
 
-    async def get_or_create(self, user_id: int, username: str | None) -> User:
+    async def get_or_create(self, user_id: int, username: str | None) -> tuple[User, bool]:
         user = await self.users_dao.get_by_id(user_id)
-        if user is None:
-            user = await self.users_dao.create(user_id, username)
-        elif username is not None and user.username != username:
-            user = await self.users_dao.update_username(user_id, username)
+        if user is not None:
+            if username is not None and user.username != username:
+                user = await self.users_dao.update_username(user_id, username)
+            assert user is not None
+            return user, False
 
+        user = await self.users_dao.create(user_id, username)
         assert user is not None
-        return user
+        return user, True
 
     async def get_by_id(self, user_id: int) -> User | None:
         return await self.users_dao.get_by_id(user_id)
