@@ -1,12 +1,14 @@
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
+from aiogram_dialog import DialogManager, StartMode
 from dishka import FromDishka
 
 from timetabler.application.services.bot import BotService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
+from timetabler.presentation.user_dialogs import UserMenuSG
 
 
 def new_user_router() -> Router:
@@ -15,6 +17,7 @@ def new_user_router() -> Router:
     @router.message(Command("start"))
     async def start(
         message: Message,
+        dialog_manager: DialogManager,
         user_service: FromDishka[UserService],
         bot_service: FromDishka[BotService],
     ) -> None:
@@ -22,11 +25,7 @@ def new_user_router() -> Router:
         user, is_new = await user_service.get_or_create(message.from_user.id, message.from_user.username)
         if is_new:
             await bot_service.notify_new_user(user)
-        await message.answer(
-            "👋 <b>TIMETABLER</b>\n━━━━━━━━━━━━━━━━━━\n"
-            "Рассылаю расписание подписчикам.\n\n"
-            "Справка: /help"
-        )
+        await dialog_manager.start(UserMenuSG.main, mode=StartMode.RESET_STACK)
 
     @router.message(Command("help"))
     async def help_handler(

@@ -86,6 +86,21 @@ class UsersDAO:
 
         return self._map_to_domain(orm_user)
 
+    async def set_notifications(self, user_id: int, enabled: bool) -> User | None:
+        stmt = (
+            update(OrmUser)
+            .where(OrmUser.user_id == user_id)
+            .values(notifications_enabled=enabled)
+            .returning(OrmUser)
+        )
+        result = await self.session.execute(stmt)
+        orm_user = result.scalar_one_or_none()
+
+        if not orm_user:
+            return None
+
+        return self._map_to_domain(orm_user)
+
     async def set_banned(self, user_id: int, is_banned: bool) -> User | None:
         stmt = (
             update(OrmUser)
@@ -107,6 +122,7 @@ class UsersDAO:
             user_id=orm_user.user_id,
             username=orm_user.username,
             is_banned=orm_user.is_banned,
+            notifications_enabled=orm_user.notifications_enabled,
             groups=list(orm_user.groups),
             created_at=orm_user.created_at,
         )

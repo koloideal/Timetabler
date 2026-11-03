@@ -27,9 +27,12 @@ class SheetsSettingsConfig:
     schedule_range_key: str = "sheets.schedule_range"
     date_cell_key: str = "sheets.date_cell"
     poll_interval_key: str = "sheets.poll_interval_seconds"
+    confirmation_key: str = "sheets.require_confirmation"
+    pending_broadcast_key: str = "sheets.pending_broadcast"
     schedule_range_label: str = "диапазон расписания"
     date_cell_label: str = "ячейка даты"
     poll_interval_label: str = "интервал опроса, сек"
+    confirmation_label: str = "подтверждение рассылки"
     default_schedule_range: str = "A1:I100"
     default_date_cell: str = "A1"
     default_poll_interval_seconds: int = 180
@@ -45,7 +48,12 @@ class SheetsSettingsConfig:
             (self.schedule_range_key, self.schedule_range_label),
             (self.date_cell_key, self.date_cell_label),
             (self.poll_interval_key, self.poll_interval_label),
+            (self.confirmation_key, self.confirmation_label),
         )
+
+    @property
+    def text_fields(self) -> tuple[tuple[str, str], ...]:
+        return self.fields[:3]
 
 
 @dataclass(frozen=True)

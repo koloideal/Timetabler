@@ -13,6 +13,7 @@ from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.timetable import TimetableService
 from timetabler.application.services.user import UserService
+from timetabler.domain.schemas import PendingBroadcast
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
@@ -64,10 +65,19 @@ class SheetsPoller:
             if not source or not source.spreadsheet_id:
                 return poll_interval
 
+            pending = await settings_service.get_pending_broadcast()
+
             try:
                 marker = await self._read_marker(client, source.spreadsheet_id, settings.date_cell)
                 if not marker or marker == source.last_header:
                     self._clear_error(weekday)
+                    return poll_interval
+                if (
+                    settings.require_confirmation
+                    and pending is not None
+                    and pending.weekday == weekday
+                    and pending.marker == marker
+                ):
                     return poll_interval
 
                 values = await client.read_values(source.spreadsheet_id, settings.schedule_range)
@@ -88,6 +98,22 @@ class SheetsPoller:
                 self._log_error_once(weekday, f"{type(e).__name__}: {e}")
                 return poll_interval
             self._clear_error(weekday)
+
+            if settings.require_confirmation:
+                await settings_service.set_pending_broadcast(
+                    PendingBroadcast(weekday=weekday, marker=marker, dates=result.dates)
+                )
+                preview = await broadcast_service.build_preview(target_date)
+                await bot_service.ask_broadcast_confirmation(
+                    preview.markdown if preview else "📅 Новое расписание"
+                )
+                self._logger.info(
+                    "Sheet %s: waiting for creator confirmation (weekday %s)",
+                    source.spreadsheet_id, weekday,
+                )
+                return poll_interval
+
+            await settings_service.set_pending_broadcast(None)
 
             total_sent = total_failed = chats_sent = chats_failed = 0
             for for_date in result.dates:

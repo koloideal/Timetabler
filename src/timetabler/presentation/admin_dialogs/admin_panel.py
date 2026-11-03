@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import date
 from typing import Any
 
 from aiogram.fsm.state import State, StatesGroup
@@ -17,7 +18,10 @@ from aiogram_dialog.widgets.text import Const, Format
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 
+from timetabler.application.services.bot import BotService
+from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.poller import next_study_day
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
@@ -42,6 +46,7 @@ class AdminPanelSG(StatesGroup):
     sheet_set_input = State()
     sheets_settings = State()
     setting_input = State()
+    schedule_view = State()
 
 
 def _is_creator(dialog_manager: DialogManager, config: Config) -> bool:
@@ -424,6 +429,40 @@ async def on_sheet_id_input(
 
 
 @inject
+async def get_schedule_view_data(
+    dialog_manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target = next_study_day(date.today())
+    preview = await broadcast_service.build_preview(target)
+    weekday = app_config.weekdays_short[target.weekday()]
+    return {
+        "schedule_date": f"{target.strftime('%d.%m.%Y')} ({weekday})",
+        "groups": preview.groups if preview else 0,
+        "lessons": preview.lessons if preview else 0,
+        "has_schedule": preview is not None,
+    }
+
+
+@inject
+async def on_show_schedule(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+    bot_service: FromDishka[BotService],
+) -> None:
+    preview = await broadcast_service.build_preview(next_study_day(date.today()))
+    if preview is None:
+        await call.answer("Нет расписания", show_alert=True)
+        return
+    await bot_service.send_rich_to_creator(preview.markdown)
+    await call.answer("📨 Отправлено", show_alert=True)
+
+
+@inject
 async def get_sheets_settings_data(
     dialog_manager: DialogManager,
     settings_service: FromDishka[SettingsService],
@@ -436,17 +475,31 @@ async def get_sheets_settings_data(
         cfg.schedule_range_key: settings.schedule_range,
         cfg.date_cell_key: settings.date_cell,
         cfg.poll_interval_key: str(settings.poll_interval_seconds),
+        cfg.confirmation_key: "вкл" if settings.require_confirmation else "выкл",
     }
     items = [(f"{label} = {values[key]}", key) for key, label in cfg.fields]
     return {"settings_items": items}
 
 
+@inject
 async def on_setting_selected(
     call: CallbackQuery,
     widget: Select,
     manager: DialogManager,
     item_id: str,
+    settings_service: FromDishka[SettingsService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
+    cfg = app_config.sheets_settings
+    if item_id == cfg.confirmation_key:
+        settings = await settings_service.get_sheets_settings()
+        enabled = not settings.require_confirmation
+        await settings_service.set(cfg.confirmation_key, "1" if enabled else "0")
+        await call.answer(
+            "🔔 Подтверждение вкл" if enabled else "🔕 Подтверждение выкл",
+            show_alert=True,
+        )
+        return
     manager.dialog_data["setting_key"] = item_id
     await manager.switch_to(AdminPanelSG.setting_input)
 
@@ -471,7 +524,7 @@ async def on_setting_input(
 ) -> None:
     cfg = app_config.sheets_settings
     key = manager.dialog_data.get("setting_key")
-    if key not in dict(cfg.fields):
+    if key not in dict(cfg.text_fields):
         await manager.switch_to(AdminPanelSG.sheets_settings)
         return
 
@@ -514,10 +567,12 @@ def build_admin_panel_dialog() -> Dialog:
             ),
             SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
             SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
+            SwitchTo(Const("📅 Расписание"), id="sec_schedule", state=AdminPanelSG.schedule_view),
             Row(
                 SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
                 SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
             ),
+            SwitchTo(Const("⚙️ Настройки"), id="sec_settings", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.main,
             getter=get_admin_main_data,
         ),
@@ -677,7 +732,6 @@ def build_admin_panel_dialog() -> Dialog:
                 height=6,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⚙️ Настройки"), id="sheets_settings", state=AdminPanelSG.sheets_settings),
             SwitchTo(Const("⬅️ Назад"), id="back_main_sheets", state=AdminPanelSG.main),
             state=AdminPanelSG.sheets_list,
             getter=get_sheets_list_data,
@@ -721,7 +775,7 @@ def build_admin_panel_dialog() -> Dialog:
                 height=5,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_sheets_settings", state=AdminPanelSG.sheets_list),
+            SwitchTo(Const("⬅️ Назад"), id="back_sheets_settings", state=AdminPanelSG.main),
             state=AdminPanelSG.sheets_settings,
             getter=get_sheets_settings_data,
         ),
@@ -734,5 +788,19 @@ def build_admin_panel_dialog() -> Dialog:
             SwitchTo(Const("⬅️ Назад"), id="back_setting", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.setting_input,
             getter=get_setting_input_data,
+        ),
+        Window(
+            Format(
+                "📅 <b>АКТУАЛЬНОЕ РАСПИСАНИЕ</b>\n"
+                "<pre>━━━━━━━━━━━━━━━━━━\n"
+                "ДЕНЬ     {schedule_date}\n"
+                "ГРУПП    {groups}\n"
+                "ПАР      {lessons}\n"
+                "━━━━━━━━━━━━━━━━━━</pre>"
+            ),
+            Button(Const("📨 Показать таблицей"), id="show_schedule", on_click=on_show_schedule, when="has_schedule"),
+            SwitchTo(Const("⬅️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
+            state=AdminPanelSG.schedule_view,
+            getter=get_schedule_view_data,
         ),
     )

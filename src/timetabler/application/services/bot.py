@@ -6,7 +6,9 @@ from aiogram.types import (
     BotCommand,
     BotCommandScopeChat,
     BotCommandScopeDefault,
+    InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputRichMessage,
 )
 
 from timetabler.domain.schemas import User
@@ -45,6 +47,29 @@ class BotService:
             await self.bot.send_message(self.config.bot.creator_id, text, reply_markup=reply_markup)
         except TelegramForbiddenError:
             self._logger.warning("Cannot notify creator %s: bot is blocked", self.config.bot.creator_id)
+
+    async def send_rich_to_creator(
+        self, markdown: str, reply_markup: InlineKeyboardMarkup | None = None
+    ) -> None:
+        await self.bot.send_rich_message(
+            chat_id=self.config.bot.creator_id,
+            rich_message=InputRichMessage(markdown=markdown),
+            reply_markup=reply_markup,
+        )
+
+    async def ask_broadcast_confirmation(self, preview_markdown: str) -> None:
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Разослать", callback_data="bcast:confirm"),
+                    InlineKeyboardButton(text="❌ Пропустить", callback_data="bcast:decline"),
+                ]
+            ]
+        )
+        await self.send_rich_to_creator(
+            f"{preview_markdown}\n\n---\n\n**Подтвердить рассылку подписчикам?**",
+            reply_markup=markup,
+        )
 
     async def notify_new_user(self, user: User) -> None:
         username = f"@{user.username}" if user.username else "—"

@@ -7,6 +7,7 @@ class User:
     user_id: int
     username: str | None
     is_banned: bool
+    notifications_enabled: bool
     groups: list[str]
     created_at: datetime
 
@@ -69,3 +70,11 @@ class SheetsSettings:
     schedule_range: str
     date_cell: str
     poll_interval_seconds: int
+    require_confirmation: bool
+
+
+@dataclass
+class PendingBroadcast:
+    weekday: int
+    marker: str
+    dates: list[date]

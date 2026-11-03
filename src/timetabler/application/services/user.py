@@ -27,6 +27,21 @@ class UserService:
     async def list_users(self) -> list[User]:
         return await self.users_dao.get_all()
 
+    async def set_group_membership(
+        self, user_id: int, group_id: int, subscribed: bool
+    ) -> User | None:
+        user = await self.users_dao.get_by_id(user_id)
+        if user is None:
+            return None
+        groups = set(user.groups)
+        groups.discard(str(group_id))
+        if subscribed:
+            groups.add(str(group_id))
+        return await self.users_dao.update_groups(user_id, sorted(groups))
+
+    async def set_notifications(self, user_id: int, enabled: bool) -> User | None:
+        return await self.users_dao.set_notifications(user_id, enabled)
+
     async def is_banned(self, user_id: int) -> bool:
         user = await self.users_dao.get_by_id(user_id)
         return user.is_banned if user else False

@@ -3,14 +3,21 @@ from datetime import date, time
 from timetabler.domain.schemas import TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
 
-
-def _fmt_time(starts_at: time | None) -> str:
-    return starts_at.strftime("%H:%M") if starts_at else ""
+_MD_SPECIALS = ("\\", "|", "*", "_", "~", "[", "]", "(", ")")
 
 
-def build_timetable_header(for_date: date, config: AppConfig) -> str:
-    weekday = config.weekdays_short[for_date.weekday()]
-    return f"📅 <b>РАСПИСАНИЕ НА {for_date.strftime('%d.%m.%Y')} ({weekday})</b>"
+def _md(text: str) -> str:
+    for char in _MD_SPECIALS:
+        text = text.replace(char, f"\\{char}")
+    return text
+
+
+def _fmt_time(starts_at: time | None, time_format: str) -> str:
+    return starts_at.strftime(time_format) if starts_at else "—"
+
+
+def _cell(text: str | None) -> str:
+    return _md(text) if text else "—"
 
 
 def format_group_schedule(
@@ -19,11 +26,14 @@ def format_group_schedule(
     entries: list[TimetableEntry],
     config: AppConfig,
 ) -> str:
-    header = f"ГРУППА {group_label}"
+    lines = [f"### 📚 ГРУППА {_md(group_label)}"]
     if base_audience:
-        header += f" · сбор {base_audience}"
+        lines.append(f"> сбор ауд. {_md(base_audience)}")
 
-    lines = [header, config.separator]
+    lines.append("")
+    lines.append("| № | Предмет | Ауд. | Время | Преподаватель |")
+    lines.append("|:-:|:--------|:----:|:-----:|:--------------|")
+
     ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
     for entry in ordered:
         if entry.position is None:
@@ -33,20 +43,12 @@ def format_group_schedule(
         else:
             position = f"{entry.position}.{entry.subgroup}"
 
-        subject_line = f"{position:>2}  {entry.subject}"
-        if entry.audience:
-            subject_line += f" · {entry.audience}"
-        lines.append(subject_line)
+        audience = entry.audience or base_audience
+        lines.append(
+            f"| **{position}** | {_cell(entry.subject)} | {_cell(audience)} "
+            f"| {_fmt_time(entry.starts_at, config.time_format)} | {_cell(entry.teacher)} |"
+        )
 
-        details = []
-        if entry.starts_at:
-            details.append(f"с {_fmt_time(entry.starts_at)}")
-        if entry.teacher:
-            details.append(entry.teacher)
-        if details:
-            lines.append(f"    {' · '.join(details)}")
-
-    lines.append(config.separator)
     return "\n".join(lines)
 
 
@@ -55,5 +57,7 @@ def build_broadcast_message(
     parts: list[str],
     config: AppConfig,
 ) -> str:
-    body = "\n\n".join(f"<pre>{part}</pre>" for part in parts)
-    return f"{build_timetable_header(for_date, config)}\n\n{body}"
+    weekday = config.weekdays_short[for_date.weekday()]
+    header = f"**📅 РАСПИСАНИЕ НА {for_date.strftime('%d.%m.%Y')} ({weekday})**"
+    body = "\n\n---\n\n".join(parts)
+    return f"{header}\n\n{body}" if body else header

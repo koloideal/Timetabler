@@ -1,9 +1,11 @@
 import logging
 from dataclasses import dataclass
 from datetime import date
+from typing import Iterable
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
+from aiogram.types import InputRichMessage
 
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.database.dao import (
@@ -17,6 +19,7 @@ from timetabler.infrastructure.notifications.timetable_text import (
     format_group_schedule,
 )
 
+
 @dataclass
 class BroadcastReport:
     users_sent: int
@@ -24,6 +27,13 @@ class BroadcastReport:
     chats_sent: int
     chats_failed: int
     groups: int
+
+
+@dataclass
+class BroadcastPreview:
+    markdown: str
+    groups: int
+    lessons: int
 
 
 class BroadcastService:
@@ -44,7 +54,7 @@ class BroadcastService:
         self.timetables_dao = timetables_dao
         self._logger = logging.getLogger(__name__)
 
-    async def broadcast(self, for_date: date) -> BroadcastReport:
+    async def _group_parts(self, for_date: date) -> dict[int, str]:
         entries = await self.timetables_dao.get_entries(for_date)
         base_audiences = await self.timetables_dao.get_base_audiences(for_date)
         aliases = {
@@ -59,41 +69,57 @@ class BroadcastService:
             alias = aliases.get(group_id)
             return f"{group_id} — {alias}" if alias else str(group_id)
 
-        def group_part(group_id: int) -> str:
-            return format_group_schedule(
+        return {
+            group_id: format_group_schedule(
                 label(group_id), base_audiences.get(group_id), by_group[group_id], self.config
             )
+            for group_id in sorted(by_group)
+        }
 
-        report = BroadcastReport(0, 0, 0, 0, len(by_group))
+    def _message_for(self, for_date: date, parts: dict[int, str], groups: Iterable[str]) -> str | None:
+        selected = [parts[int(g)] for g in groups if g.isdigit() and int(g) in parts]
+        if not selected:
+            return None
+        return build_broadcast_message(for_date, selected, self.config)
+
+    async def _send_rich(self, chat_id: int, markdown: str) -> None:
+        await self.bot.send_rich_message(
+            chat_id=chat_id, rich_message=InputRichMessage(markdown=markdown)
+        )
+
+    async def build_preview(self, for_date: date) -> BroadcastPreview | None:
+        entries = await self.timetables_dao.get_entries(for_date)
+        if not entries:
+            return None
+        parts = await self._group_parts(for_date)
+        return BroadcastPreview(
+            markdown=build_broadcast_message(for_date, list(parts.values()), self.config),
+            groups=len(parts),
+            lessons=len(entries),
+        )
+
+    async def broadcast(self, for_date: date) -> BroadcastReport:
+        parts = await self._group_parts(for_date)
+        report = BroadcastReport(0, 0, 0, 0, len(parts))
 
         for user in await self.users_dao.get_all():
-            parts = [
-                group_part(int(g))
-                for g in user.groups
-                if g.isdigit() and int(g) in by_group
-            ]
-            if not parts:
+            if user.is_banned or not user.notifications_enabled:
+                continue
+            markdown = self._message_for(for_date, parts, user.groups)
+            if markdown is None:
                 continue
             try:
-                await self.bot.send_message(
-                    user.user_id, build_broadcast_message(for_date, parts, self.config)
-                )
+                await self._send_rich(user.user_id, markdown)
                 report.users_sent += 1
             except TelegramForbiddenError:
                 report.users_failed += 1
 
         for chat in await self.group_chats_dao.get_all():
-            parts = [
-                group_part(int(g))
-                for g in chat.groups
-                if g.isdigit() and int(g) in by_group
-            ]
-            if not parts:
+            markdown = self._message_for(for_date, parts, chat.groups)
+            if markdown is None:
                 continue
             try:
-                await self.bot.send_message(
-                    chat.chat_id, build_broadcast_message(for_date, parts, self.config)
-                )
+                await self._send_rich(chat.chat_id, markdown)
                 report.chats_sent += 1
             except TelegramForbiddenError:
                 report.chats_failed += 1
