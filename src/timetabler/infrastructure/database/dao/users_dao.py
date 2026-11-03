@@ -36,6 +36,16 @@ class UsersDAO:
 
         return self._map_to_domain(orm_user)
 
+    async def get_by_username(self, username: str) -> User | None:
+        query = select(OrmUser).where(OrmUser.username == username)
+        result = await self.session.execute(query)
+        orm_user = result.scalar_one_or_none()
+
+        if orm_user:
+            return self._map_to_domain(orm_user)
+
+        return None
+
     async def get_all(self) -> list[User]:
         query = select(OrmUser)
         result = await self.session.execute(query)
@@ -56,6 +66,21 @@ class UsersDAO:
             update(OrmUser)
             .where(OrmUser.user_id == user_id)
             .values(groups=groups)
+            .returning(OrmUser)
+        )
+        result = await self.session.execute(stmt)
+        orm_user = result.scalar_one_or_none()
+
+        if not orm_user:
+            return None
+
+        return self._map_to_domain(orm_user)
+
+    async def update_username(self, user_id: int, username: str | None) -> User | None:
+        stmt = (
+            update(OrmUser)
+            .where(OrmUser.user_id == user_id)
+            .values(username=username)
             .returning(OrmUser)
         )
         result = await self.session.execute(stmt)

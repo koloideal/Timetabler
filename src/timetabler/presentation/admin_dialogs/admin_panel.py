@@ -2,14 +2,11 @@ import logging
 from typing import Any
 
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import Dialog, DialogManager, Window
+from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import (
     Button,
-    Cancel,
-    CurrentPage,
-    NextPage,
-    PrevPage,
     Row,
     ScrollingGroup,
     Select,
@@ -31,6 +28,7 @@ class AdminPanelSG(StatesGroup):
     users_list = State()
     user_detail = State()
     admins_list = State()
+    add_admin = State()
     chats_list = State()
     chat_detail = State()
 
@@ -115,6 +113,47 @@ async def on_admin_selected(
 
 
 @inject
+async def on_add_admin_input(
+    message: Message,
+    widget: MessageInput,
+    manager: DialogManager,
+    user_service: FromDishka[UserService],
+    config: FromDishka[Config],
+) -> None:
+    text = (message.text or "").strip()
+    target = None
+
+    if text.isdigit():
+        target = await user_service.get_or_create(int(text), None)
+    elif text.startswith("@"):
+        target = await user_service.get_by_username(text[1:])
+    else:
+        await message.answer("❌ Введите ID или @username")
+        return
+
+    if not target:
+        await message.answer(
+            "❌ Пользователь не найден.\n"
+            "Попросите его нажать /start у бота или введите ID."
+        )
+        return
+
+    if target.user_id == config.bot.creator_id:
+        await message.answer("❌ Нельзя менять статус создателя")
+        return
+
+    if target.is_admin:
+        await message.answer("ℹ️ Уже админ")
+        await manager.switch_to(AdminPanelSG.admins_list)
+        return
+
+    await user_service.set_admin(target.user_id, True)
+    name = f"@{target.username}" if target.username else str(target.user_id)
+    await message.answer(f"⭐ {name} назначен админом")
+    await manager.switch_to(AdminPanelSG.admins_list)
+
+
+@inject
 async def get_user_detail_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
@@ -129,8 +168,9 @@ async def get_user_detail_data(
     if not user:
         return {}
 
+    event_from_user = dialog_manager.middleware_data.get("event_from_user")
     is_creator = _is_creator(dialog_manager, config)
-    is_self = user.user_id == dialog_manager.middleware_data["event_from_user"].id
+    is_self = bool(event_from_user and event_from_user.id == user.user_id)
     target_is_creator = user.user_id == config.bot.creator_id
 
     can_ban = not is_self and not target_is_creator and (is_creator or not user.is_admin)
@@ -270,7 +310,6 @@ admin_panel_dialog = Dialog(
         SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
         SwitchTo(Const("🛡 Админы"), id="sec_admins", state=AdminPanelSG.admins_list, when="is_creator"),
         SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
-        Cancel(Const("❌ Закрыть")),
         state=AdminPanelSG.main,
         getter=get_admin_main_data,
     ),
@@ -287,11 +326,7 @@ admin_panel_dialog = Dialog(
             id="users_scroll",
             width=1,
             height=7,
-        ),
-        Row(
-            PrevPage(scroll="users_scroll"),
-            CurrentPage(scroll="users_scroll"),
-            NextPage(scroll="users_scroll"),
+            hide_on_single_page=True,
         ),
         SwitchTo(Const("⬅️ Назад"), id="back_main_users", state=AdminPanelSG.main),
         state=AdminPanelSG.users_list,
@@ -310,15 +345,23 @@ admin_panel_dialog = Dialog(
             id="admins_scroll",
             width=1,
             height=7,
+            hide_on_single_page=True,
         ),
         Row(
-            PrevPage(scroll="admins_scroll"),
-            CurrentPage(scroll="admins_scroll"),
-            NextPage(scroll="admins_scroll"),
+            SwitchTo(Const("➕ Добавить админа"), id="add_admin", state=AdminPanelSG.add_admin),
+            SwitchTo(Const("⬅️ Назад"), id="back_main_admins", state=AdminPanelSG.main),
         ),
-        SwitchTo(Const("⬅️ Назад"), id="back_main_admins", state=AdminPanelSG.main),
         state=AdminPanelSG.admins_list,
         getter=get_admins_list_data,
+    ),
+    Window(
+        Const(
+            "➕ <b>Добавить админа</b>\n\n"
+            "Введите ID пользователя или @username:"
+        ),
+        MessageInput(on_add_admin_input, content_types=["text"]),
+        SwitchTo(Const("⬅️ Назад"), id="back_admins", state=AdminPanelSG.admins_list),
+        state=AdminPanelSG.add_admin,
     ),
     Window(
         Format(
@@ -359,11 +402,7 @@ admin_panel_dialog = Dialog(
             id="chats_scroll",
             width=1,
             height=7,
-        ),
-        Row(
-            PrevPage(scroll="chats_scroll"),
-            CurrentPage(scroll="chats_scroll"),
-            NextPage(scroll="chats_scroll"),
+            hide_on_single_page=True,
         ),
         SwitchTo(Const("⬅️ Назад"), id="back_main_chats", state=AdminPanelSG.main),
         state=AdminPanelSG.chats_list,

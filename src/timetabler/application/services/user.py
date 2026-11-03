@@ -10,12 +10,17 @@ class UserService:
         user = await self.users_dao.get_by_id(user_id)
         if user is None:
             user = await self.users_dao.create(user_id, username)
+        elif username is not None and user.username != username:
+            user = await self.users_dao.update_username(user_id, username)
 
         assert user is not None
         return user
 
     async def get_by_id(self, user_id: int) -> User | None:
         return await self.users_dao.get_by_id(user_id)
+
+    async def get_by_username(self, username: str) -> User | None:
+        return await self.users_dao.get_by_username(username)
 
     async def list_users(self) -> list[User]:
         return await self.users_dao.get_all()
