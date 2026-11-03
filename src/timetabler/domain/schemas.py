@@ -66,7 +66,6 @@ class SheetSource:
 
 @dataclass
 class SheetsSettings:
-    credentials_path: str | None
     schedule_range: str
     date_cell: str
     poll_interval_seconds: int

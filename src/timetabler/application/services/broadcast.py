@@ -17,9 +17,6 @@ from timetabler.infrastructure.notifications.timetable_text import (
     format_group_schedule,
 )
 
-logger = logging.getLogger(__name__)
-
-
 @dataclass
 class BroadcastReport:
     users_sent: int
@@ -45,6 +42,7 @@ class BroadcastService:
         self.group_chats_dao = group_chats_dao
         self.study_groups_dao = study_groups_dao
         self.timetables_dao = timetables_dao
+        self._logger = logging.getLogger(__name__)
 
     async def broadcast(self, for_date: date) -> BroadcastReport:
         entries = await self.timetables_dao.get_entries(for_date)
@@ -63,7 +61,7 @@ class BroadcastService:
 
         def group_part(group_id: int) -> str:
             return format_group_schedule(
-                label(group_id), base_audiences.get(group_id), by_group[group_id]
+                label(group_id), base_audiences.get(group_id), by_group[group_id], self.config
             )
 
         report = BroadcastReport(0, 0, 0, 0, len(by_group))
@@ -100,7 +98,7 @@ class BroadcastService:
             except TelegramForbiddenError:
                 report.chats_failed += 1
 
-        logger.info(
+        self._logger.info(
             "Broadcast %s: %s users, %s chats, %s groups",
             for_date, report.users_sent, report.chats_sent, report.groups,
         )

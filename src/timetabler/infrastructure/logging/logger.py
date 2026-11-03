@@ -6,8 +6,6 @@ from logging.handlers import QueueHandler, QueueListener
 
 import orjson
 
-logger = logging.getLogger("main")
-
 
 def setup_logging(path_to_config: str) -> None:
     config_file = pathlib.Path(path_to_config)

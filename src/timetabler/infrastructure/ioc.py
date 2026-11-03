@@ -13,7 +13,11 @@ from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.timetable import TimetableService
 from timetabler.application.services.user import UserService
-from timetabler.infrastructure.config.app import AppConfig
+from timetabler.infrastructure.config.app import (
+    AppConfig,
+    SheetsClientConfig,
+    SheetsSettingsConfig,
+)
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.config import new_session_maker
 from timetabler.infrastructure.database.dao import (
@@ -92,8 +96,12 @@ class ServicesProvider(Provider):
         return SheetsService(sheet_sources_dao)
 
     @provide
-    def get_settings_service(self, settings_dao: SettingsDAO) -> SettingsService:
-        return SettingsService(settings_dao)
+    def get_settings_service(
+        self,
+        settings_dao: SettingsDAO,
+        settings_config: SheetsSettingsConfig,
+    ) -> SettingsService:
+        return SettingsService(settings_dao, settings_config)
 
     @provide
     def get_broadcast_service(
@@ -120,8 +128,10 @@ class SheetsProvider(Provider):
     scope = Scope.APP
 
     @provide
-    def get_sheets_client(self) -> GoogleSheetsClient:
-        return GoogleSheetsClient()
+    def get_sheets_client(
+        self, client_config: SheetsClientConfig, config: Config
+    ) -> GoogleSheetsClient:
+        return GoogleSheetsClient(client_config, config.google.credentials_path)
 
 
 class ParsersProvider(Provider):
@@ -136,3 +146,11 @@ class AppConfigProvider(Provider):
     @provide(scope=Scope.APP)
     def get_app_config(self) -> AppConfig:
         return AppConfig()
+
+    @provide(scope=Scope.APP)
+    def get_sheets_client_config(self, app_config: AppConfig) -> SheetsClientConfig:
+        return app_config.sheets_client
+
+    @provide(scope=Scope.APP)
+    def get_sheets_settings_config(self, app_config: AppConfig) -> SheetsSettingsConfig:
+        return app_config.sheets_settings

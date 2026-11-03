@@ -15,5 +15,8 @@ class StudyGroupService:
     async def create_group(self, group_id: int, alias: str | None) -> StudyGroup | None:
         return await self.study_groups_dao.create(group_id, alias)
 
+    async def set_alias(self, group_id: int, alias: str | None) -> StudyGroup | None:
+        return await self.study_groups_dao.set_alias(group_id, alias)
+
     async def delete_group(self, group_id: int) -> bool:
         return await self.study_groups_dao.remove(group_id)

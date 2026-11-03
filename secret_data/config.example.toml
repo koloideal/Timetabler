@@ -8,4 +8,7 @@ port = 5432
 user = "postgres"
 password = "postgres"
 name = "timetabler"
-# Sheets настраиваются в рантайме через /admin → 📊 Таблицы
+
+[google]
+# Путь к JSON-ключу сервисного аккаунта Google (Sheets API)
+credentials_path = "secret_data/credentials.json"

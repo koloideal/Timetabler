@@ -13,14 +13,12 @@ from timetabler.domain.schemas import User
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.dao import UsersDAO
 
-logger = logging.getLogger(__name__)
-
-
 class BotService:
     def __init__(self, bot: Bot, config: Config, users_dao: UsersDAO) -> None:
         self.bot = bot
         self.config = config
         self.users_dao = users_dao
+        self._logger = logging.getLogger(__name__)
 
     async def process_set_commands(self) -> None:
         user_commands = [
@@ -46,7 +44,7 @@ class BotService:
         try:
             await self.bot.send_message(self.config.bot.creator_id, text, reply_markup=reply_markup)
         except TelegramForbiddenError:
-            logger.warning("Cannot notify creator %s: bot is blocked", self.config.bot.creator_id)
+            self._logger.warning("Cannot notify creator %s: bot is blocked", self.config.bot.creator_id)
 
     async def notify_new_user(self, user: User) -> None:
         username = f"@{user.username}" if user.username else "—"

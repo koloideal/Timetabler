@@ -6,77 +6,33 @@ from timetabler.application.exceptions import TimetableParseError
 from timetabler.domain.schemas import ParsedTimetable, TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
 
-# Расписание занимает колонки A..I, всё правее — служебный буфер
-MAIN_COLUMNS = 9
-
-COL_GROUP = 0
-COL_POSITION = 1
-COL_SUBJECT = 2
-SUBGROUP_SETS = ((1, 3, 4, 5), (2, 6, 7, 8))  # (subgroup, time, teacher, audience)
-
-GROUP_RE = re.compile(r"^\s*(\d{3,4})\s*(?:,\s*ауд\.?\s*(.+?))?\s*$")
-SKIPPED_CELL_VALUES = ("", "-", "—")
-
-
-def _text(raw: Any) -> str | None:
-    if raw is None:
-        return None
-    if isinstance(raw, float) and raw.is_integer():
-        raw = int(raw)
-    text = str(raw).strip()
-    return text if text not in SKIPPED_CELL_VALUES else None
-
-
-def _position(raw: Any, row_no: int) -> int | None:
-    text = _text(raw)
-    if text is None:
-        return None
-    try:
-        return int(float(text))
-    except ValueError:
-        raise TimetableParseError(f"Строка {row_no}: номер пары «{text}» не число")
-
-
-def _starts_at(raw: Any, row_no: int, time_format: str) -> time | None:
-    if isinstance(raw, datetime):
-        return raw.time()
-    if isinstance(raw, time):
-        return raw
-    text = _text(raw)
-    if text is None:
-        return None
-    if text.startswith("с"):
-        text = text[1:].strip()
-    try:
-        return datetime.strptime(text, time_format).time()
-    except ValueError:
-        raise TimetableParseError(f"Строка {row_no}: непонятное время «{text}»")
-
 
 class GridScheduleParser:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self._group_re = re.compile(config.grid.group_pattern)
 
     def parse(self, values: list[list[Any]], default_date: date) -> ParsedTimetable:
         parsed = ParsedTimetable()
         group_id: int | None = None
+        grid = self.config.grid
 
         for row_no, raw_row in enumerate(values, start=1):
-            row = list(raw_row[:MAIN_COLUMNS])
-            row += [None] * (MAIN_COLUMNS - len(row))
+            row = list(raw_row[:grid.main_columns])
+            row += [None] * (grid.main_columns - len(row))
 
-            label = _text(row[COL_GROUP])
+            label = self._text(row[grid.group_col])
             if label is not None:
-                match = GROUP_RE.match(label)
+                match = self._group_re.match(label)
                 if match:
                     group_id = int(match.group(1))
-                    base_audience = _text(match.group(2))
+                    base_audience = self._text(match.group(2))
                     if base_audience:
                         parsed.base_audiences.setdefault(group_id, base_audience)
                 else:
                     group_id = None
 
-            subject = _text(row[COL_SUBJECT])
+            subject = self._text(row[grid.subject_col])
             if group_id is None or subject is None:
                 continue
 
@@ -84,6 +40,38 @@ class GridScheduleParser:
             parsed.entries.extend(entries)
 
         return parsed
+
+    def _text(self, raw: Any) -> str | None:
+        if raw is None:
+            return None
+        if isinstance(raw, float) and raw.is_integer():
+            raw = int(raw)
+        text = str(raw).strip()
+        return text if text not in self.config.grid.skipped_cell_values else None
+
+    def _position(self, raw: Any, row_no: int) -> int | None:
+        text = self._text(raw)
+        if text is None:
+            return None
+        try:
+            return int(float(text))
+        except ValueError:
+            raise TimetableParseError(f"Строка {row_no}: номер пары «{text}» не число")
+
+    def _starts_at(self, raw: Any, row_no: int) -> time | None:
+        if isinstance(raw, datetime):
+            return raw.time()
+        if isinstance(raw, time):
+            return raw
+        text = self._text(raw)
+        if text is None:
+            return None
+        if text.startswith("с"):
+            text = text[1:].strip()
+        try:
+            return datetime.strptime(text, self.config.time_format).time()
+        except ValueError:
+            raise TimetableParseError(f"Строка {row_no}: непонятное время «{text}»")
 
     def _entries(
         self,
@@ -93,15 +81,16 @@ class GridScheduleParser:
         subject: str,
         default_date: date,
     ) -> list[TimetableEntry]:
-        position = _position(row[COL_POSITION], row_no)
+        grid = self.config.grid
+        position = self._position(row[grid.position_col], row_no)
         sets: list[tuple[int | None, time | None, str | None, str | None]] = [
             (
                 subgroup,
-                _starts_at(row[time_col], row_no, self.config.time_format),
-                _text(row[teacher_col]),
-                _text(row[audience_col]),
+                self._starts_at(row[time_col], row_no),
+                self._text(row[teacher_col]),
+                self._text(row[audience_col]),
             )
-            for subgroup, time_col, teacher_col, audience_col in SUBGROUP_SETS
+            for subgroup, time_col, teacher_col, audience_col in grid.subgroup_sets
         ]
 
         if not any(sets[1][1:]):

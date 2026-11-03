@@ -1,7 +1,7 @@
 import asyncio
 import os
 import sys
-from logging import Logger, getLogger
+from logging import getLogger
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -26,38 +26,39 @@ from timetabler.infrastructure.logging.logger import setup_logging
 from timetabler.presentation.middlewares.check_ban import CheckBanMiddleware
 from timetabler.presentation.middlewares.reject_not_creator import RejectNotCreatorMiddleware
 
-config: Config = load_config("secret_data/config.toml")
-
-session = AiohttpSession()
-bot: Bot = Bot(
-    token=config.bot.token,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    session=session,
-)
-
-logger: Logger = getLogger("main")
-os.makedirs("logs", exist_ok=True)
-setup_logging("secret_data/logger-config.json")
-
-container = make_async_container(
-    DatabaseProvider(),
-    ServicesProvider(),
-    SheetsProvider(),
-    ParsersProvider(),
-    AppConfigProvider(),
-    context={Config: config, Bot: bot},
-)
-
-dp: Dispatcher = Dispatcher(storage=MemoryStorage())
-
 
 async def main() -> None:
-    from timetabler.presentation.admin_dialogs import admin_panel_dialog
-    from timetabler.presentation.admin_handlers import admin_router
-    from timetabler.presentation.group_handlers import group_router
-    from timetabler.presentation.user_handlers import user_router
+    from timetabler.application.services.bot import BotService
+    from timetabler.presentation.admin_dialogs import build_admin_panel_dialog
+    from timetabler.presentation.admin_handlers import new_admin_router
+    from timetabler.presentation.group_handlers import new_group_router
+    from timetabler.presentation.user_handlers import new_user_router
 
-    dp.include_routers(user_router, admin_router, group_router, admin_panel_dialog)
+    config: Config = load_config("secret_data/config.toml")
+    logger = getLogger("main")
+    os.makedirs("logs", exist_ok=True)
+    setup_logging("secret_data/logger-config.json")
+
+    bot: Bot = Bot(
+        token=config.bot.token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        session=AiohttpSession(),
+    )
+
+    container = make_async_container(
+        DatabaseProvider(),
+        ServicesProvider(),
+        SheetsProvider(),
+        ParsersProvider(),
+        AppConfigProvider(),
+        context={Config: config, Bot: bot},
+    )
+
+    dp: Dispatcher = Dispatcher(storage=MemoryStorage())
+
+    admin_router = new_admin_router()
+    admin_panel_dialog = build_admin_panel_dialog()
+    dp.include_routers(new_user_router(), admin_router, new_group_router(), admin_panel_dialog)
 
     admin_router.message.middleware(RejectNotCreatorMiddleware())
     admin_panel_dialog.callback_query.middleware(RejectNotCreatorMiddleware())
@@ -67,7 +68,6 @@ async def main() -> None:
     setup_dishka(router=dp, container=container, auto_inject=True)
 
     async with container() as nested_container:
-        from timetabler.application.services.bot import BotService
         bot_service = await nested_container.get(BotService)
         await bot_service.process_set_commands()
 
@@ -89,4 +89,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.critical("End of work...")
+        getLogger("main").critical("End of work...")

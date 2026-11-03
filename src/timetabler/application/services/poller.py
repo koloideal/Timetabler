@@ -9,20 +9,13 @@ from timetabler.application.exceptions import TimetableParseError
 from timetabler.application.ports import ScheduleParser
 from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
-from timetabler.application.services.settings import (
-    DEFAULT_POLL_INTERVAL_SECONDS,
-    SettingsService,
-)
+from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.timetable import TimetableService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
-
-logger = logging.getLogger(__name__)
-
-CONFIG_ERROR_KEY = "config"
 
 
 def next_study_day(today: date) -> date:
@@ -36,14 +29,16 @@ class SheetsPoller:
     def __init__(self, container: AsyncContainer) -> None:
         self.container = container
         self._errors: dict[int | str, str] = {}
+        self._logger = logging.getLogger(__name__)
 
     async def run(self) -> None:
+        app_config = await self.container.get(AppConfig)
+        delay = app_config.sheets_settings.default_poll_interval_seconds
         while True:
             try:
                 delay = await self.poll_once()
             except Exception:
-                logger.exception("Sheets poll cycle failed")
-                delay = DEFAULT_POLL_INTERVAL_SECONDS
+                self._logger.exception("Sheets poll cycle failed")
             await asyncio.sleep(delay)
 
     async def poll_once(self) -> int:
@@ -63,25 +58,17 @@ class SheetsPoller:
             bot_service: BotService = await scope.get(BotService)
 
             settings = await settings_service.get_sheets_settings()
-            if not settings.credentials_path:
-                self._log_error_once(CONFIG_ERROR_KEY, "не задан путь к ключу сервисного аккаунта")
-                return settings.poll_interval_seconds
-            try:
-                client.configure(settings.credentials_path)
-            except Exception as e:
-                self._log_error_once(CONFIG_ERROR_KEY, f"не удалось загрузить ключ: {e}")
-                return settings.poll_interval_seconds
-            self._clear_error(CONFIG_ERROR_KEY)
+            poll_interval = settings.poll_interval_seconds
 
             source = await sheets_service.get_source(weekday)
             if not source or not source.spreadsheet_id:
-                return settings.poll_interval_seconds
+                return poll_interval
 
             try:
                 marker = await self._read_marker(client, source.spreadsheet_id, settings.date_cell)
                 if not marker or marker == source.last_header:
                     self._clear_error(weekday)
-                    return settings.poll_interval_seconds
+                    return poll_interval
 
                 values = await client.read_values(source.spreadsheet_id, settings.schedule_range)
                 parsed = parser.parse(values, default_date=target_date)
@@ -92,10 +79,14 @@ class SheetsPoller:
                 )
             except (SheetAccessError, TimetableParseError) as e:
                 self._log_error_once(weekday, f"{e}")
-                return settings.poll_interval_seconds
+                return poll_interval
             except Exception as e:
+                self._logger.exception(
+                    "Unexpected sheets poll failure (weekday %s, sheet %s)",
+                    weekday, source.spreadsheet_id,
+                )
                 self._log_error_once(weekday, f"{type(e).__name__}: {e}")
-                return settings.poll_interval_seconds
+                return poll_interval
             self._clear_error(weekday)
 
             total_sent = total_failed = chats_sent = chats_failed = 0
@@ -117,11 +108,11 @@ class SheetsPoller:
                 f"ЮЗЕРАМ   {total_sent} (+{total_failed} недост.)\n"
                 f"ЧАТАМ    {chats_sent} (+{chats_failed} недост.)</pre>"
             )
-            logger.info(
+            self._logger.info(
                 "Sheet %s: broadcast %s for weekday %s",
                 source.spreadsheet_id, dates, weekday,
             )
-            return settings.poll_interval_seconds
+            return poll_interval
 
     async def _read_marker(
         self, client: GoogleSheetsClient, spreadsheet_id: str, date_cell: str
@@ -134,9 +125,9 @@ class SheetsPoller:
     def _log_error_once(self, key: int | str, message: str) -> None:
         if self._errors.get(key) != message:
             self._errors[key] = message
-            logger.error("Sheets poll failed (%s): %s", key, message)
+            self._logger.error("Sheets poll failed (%s): %s", key, message)
 
     def _clear_error(self, key: int | str) -> None:
         if key in self._errors:
             del self._errors[key]
-            logger.info("Sheets poll recovered (%s)", key)
+            self._logger.info("Sheets poll recovered (%s)", key)

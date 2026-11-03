@@ -21,6 +21,12 @@ class BotConfig:
 
 
 @dataclass
+class GoogleConfig:
+    credentials_path: str
+
+
+@dataclass
 class Config:
     postgres: PostgresConfig
     bot: BotConfig
+    google: GoogleConfig

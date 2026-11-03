@@ -30,13 +30,10 @@ class TimetableService:
             raise TimetableParseError("Нет ни одной пары")
 
         known_groups = {g.group_id for g in await self.study_group_service.list_groups()}
-        unknown = sorted(
+        for group_id in sorted(
             {entry.group_id for entry in parsed.entries if entry.group_id not in known_groups}
-        )
-        if unknown:
-            raise TimetableParseError(
-                f"Неизвестные группы: {', '.join(str(g) for g in unknown)}.\nСначала добавьте их через /admin → 📚 Группы"
-            )
+        ):
+            await self.study_group_service.create_group(group_id, None)
 
         dates = {entry.date for entry in parsed.entries}
         for for_date in sorted(dates):

@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,17 @@ class StudyGroupsDAO:
             insert(OrmStudyGroup)
             .values(group_id=group_id, alias=alias)
             .on_conflict_do_nothing(index_elements=["group_id"])
+        )
+        await self.session.execute(stmt)
+        await self.session.flush()
+
+        return await self.get_by_id(group_id)
+
+    async def set_alias(self, group_id: int, alias: str | None) -> StudyGroup | None:
+        stmt = (
+            update(OrmStudyGroup)
+            .where(OrmStudyGroup.group_id == group_id)
+            .values(alias=alias)
         )
         await self.session.execute(stmt)
         await self.session.flush()

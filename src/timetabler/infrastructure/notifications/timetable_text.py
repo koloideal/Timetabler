@@ -3,8 +3,6 @@ from datetime import date, time
 from timetabler.domain.schemas import TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
 
-SEPARATOR = "━━━━━━━━━━━━━━━━━━"
-
 
 def _fmt_time(starts_at: time | None) -> str:
     return starts_at.strftime("%H:%M") if starts_at else ""
@@ -19,12 +17,13 @@ def format_group_schedule(
     group_label: str,
     base_audience: str | None,
     entries: list[TimetableEntry],
+    config: AppConfig,
 ) -> str:
     header = f"ГРУППА {group_label}"
     if base_audience:
         header += f" · сбор {base_audience}"
 
-    lines = [header, SEPARATOR]
+    lines = [header, config.separator]
     ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
     for entry in ordered:
         if entry.position is None:
@@ -47,7 +46,7 @@ def format_group_schedule(
         if details:
             lines.append(f"    {' · '.join(details)}")
 
-    lines.append(SEPARATOR)
+    lines.append(config.separator)
     return "\n".join(lines)
 
 
