@@ -1,4 +1,5 @@
 from datetime import date, time
+from html import escape
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -141,3 +142,64 @@ def subgroup_markup_mode(markup: InlineKeyboardMarkup | None) -> str | None:
             if button.text.startswith("✅") and button.callback_data:
                 return button.callback_data.rsplit(":", 1)[-1]
     return None
+
+
+def _hrow(
+    position: str, subject: str, audience: str | None,
+    starts_at: time | None, teacher: str | None, config: AppConfig,
+) -> str:
+    pos = f"<b>{escape(position)}</b>" if position else ""
+    aud = escape(audience) if audience else "—"
+    t = _fmt_time(starts_at, config.time_format)
+    return (
+        f"<tr><td>{pos}</td><td>{escape(subject)}</td><td>{aud}</td>"
+        f"<td>{escape(t)}</td><td>{escape(teacher) if teacher else '—'}</td></tr>"
+    )
+
+
+def format_group_schedule_html(
+    base_audience: str | None,
+    entries: list[TimetableEntry],
+    config: AppConfig,
+    mode: str = "a",
+) -> str:
+    parts: list[str] = []
+    if base_audience:
+        parts.append(f"<blockquote>сбор ауд. {escape(base_audience)}</blockquote>")
+    parts.append(
+        "<table><tr><th>№</th><th>Предмет</th><th>Ауд.</th><th>Время</th><th>Преподаватель</th></tr>"
+    )
+
+    ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
+    for block in _pair_blocks(ordered, mode):
+        if len(block) > 1:
+            parts.append(
+                _hrow(_position_label(block[0]), block[0].subject, None, None, None, config)
+            )
+            parts += [
+                _hrow("", f"{e.subgroup} п/г", e.audience or base_audience, e.starts_at, e.teacher, config)
+                for e in block
+            ]
+        else:
+            entry = block[0]
+            parts.append(
+                _hrow(
+                    _position_label(entry), entry.subject,
+                    entry.audience or base_audience, entry.starts_at, entry.teacher, config,
+                )
+            )
+
+    parts.append("</table>")
+    return "".join(parts)
+
+
+def build_channel_html(
+    for_date: date,
+    parts: list[tuple[str, str]],
+    config: AppConfig,
+) -> str:
+    weekday = config.weekdays_short[for_date.weekday()]
+    out = [f"<h3>📅 РАСПИСАНИЕ НА {for_date.strftime('%d.%m.%Y')} ({weekday})</h3>"]
+    for label, body in parts:
+        out.append(f"<details><summary>{escape(label)}</summary>{body}</details>")
+    return "".join(out)

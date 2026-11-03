@@ -311,23 +311,24 @@ async def on_channel_disable(
 
 
 @inject
-async def on_channel_test(
+async def on_channel_schedule(
     call: CallbackQuery,
     button: Button,
     manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
 ) -> None:
     chat_id = manager.dialog_data.get("selected_channel_id")
-    if chat_id is None or call.bot is None:
+    if chat_id is None:
         return
     try:
-        await call.bot.send_message(
-            chat_id,
-            "📨 Тестовый пост — расписание будет приходить сюда.",
-        )
+        sent = await broadcast_service.send_channel_schedule(chat_id, next_study_day(date.today()))
     except TelegramAPIError as e:
         await call.answer(f"Не смог отправить: {e.message}", show_alert=True)
         return
-    await call.answer("📨 Отправлено")
+    if not sent:
+        await call.answer("Нет расписания", show_alert=True)
+        return
+    await call.answer("📅 Отправлено")
 
 
 @inject
@@ -716,10 +717,12 @@ def build_admin_panel_dialog() -> Dialog:
                 "Выберите раздел:"
             ),
             SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
-            SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
+            Row(
+                SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
+                SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
+            ),
             SwitchTo(Const("📅 Расписание"), id="sec_schedule", state=AdminPanelSG.schedule_view),
             Row(
-                SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
                 SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
                 SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
             ),
@@ -834,7 +837,7 @@ def build_admin_panel_dialog() -> Dialog:
                 Button(Const("🔕 Отключить"), id="ch_disable", on_click=on_channel_disable, when="is_approved"),
                 Button(Const("🔔 Включить"), id="ch_enable", on_click=on_channel_enable, when="is_disabled"),
             ),
-            Button(Const("📨 Тестовый пост"), id="ch_test", on_click=on_channel_test, when="is_approved"),
+            Button(Const("📅 Отправить расписание"), id="ch_schedule", on_click=on_channel_schedule, when="is_approved"),
             Button(Const("🗑 Удалить"), id="ch_delete", on_click=on_channel_delete),
             SwitchTo(Const("⬅️ Назад"), id="back_to_channels", state=AdminPanelSG.channels_list),
             state=AdminPanelSG.channel_detail,

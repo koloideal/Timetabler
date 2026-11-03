@@ -18,7 +18,9 @@ from timetabler.infrastructure.database.dao import (
 )
 from timetabler.infrastructure.notifications.timetable_text import (
     build_broadcast_message,
+    build_channel_html,
     format_group_schedule,
+    format_group_schedule_html,
     subgroup_markup,
 )
 
@@ -134,6 +136,31 @@ class BroadcastService:
             lessons=lessons,
         )
 
+    def _channel_html(self, for_date: date, data: _DayData) -> str:
+        parts = [
+            (
+                data.labels[gid],
+                format_group_schedule_html(
+                    data.audiences.get(gid), group_entries, self.config
+                ),
+            )
+            for gid, group_entries in sorted(data.by_group.items())
+        ]
+        return build_channel_html(for_date, parts, self.config)
+
+    async def send_channel_schedule(
+        self, chat_id: int, for_date: date, data: _DayData | None = None
+    ) -> bool:
+        if data is None:
+            data = await self._day_data(for_date)
+        if not data.by_group:
+            return False
+        await self.bot.send_rich_message(
+            chat_id=chat_id,
+            rich_message=InputRichMessage(html=self._channel_html(for_date, data)),
+        )
+        return True
+
     async def build_user_group_messages(
         self, for_date: date, groups: Iterable[str]
     ) -> list[tuple[str, InlineKeyboardMarkup | None]]:
@@ -181,18 +208,12 @@ class BroadcastService:
                 except TelegramForbiddenError:
                     report.users_failed += 1
 
-        all_messages = [
-            (build_broadcast_message(for_date, [part], self.config),
-             subgroup_markup(gid, for_date) if gid in data.split else None)
-            for gid, part in data.parts.items()
-        ]
         for channel in await self.channels_dao.get_enabled():
-            for markdown, markup in all_messages:
-                try:
-                    await self._send_rich(channel.chat_id, markdown, markup)
-                    report.chats_sent += 1
-                except TelegramForbiddenError:
-                    report.chats_failed += 1
+            try:
+                await self.send_channel_schedule(channel.chat_id, for_date, data)
+                report.chats_sent += 1
+            except TelegramForbiddenError:
+                report.chats_failed += 1
 
         for chat in await self.group_chats_dao.get_all():
             for markdown, markup in self._group_messages(for_date, data, chat.groups):
