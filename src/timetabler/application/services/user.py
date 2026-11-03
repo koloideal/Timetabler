@@ -27,19 +27,9 @@ class UserService:
     async def list_users(self) -> list[User]:
         return await self.users_dao.get_all()
 
-    async def list_admins(self) -> list[User]:
-        return await self.users_dao.get_admins()
-
     async def is_banned(self, user_id: int) -> bool:
         user = await self.users_dao.get_by_id(user_id)
         return user.is_banned if user else False
 
-    async def is_admin(self, user_id: int) -> bool:
-        user = await self.users_dao.get_by_id(user_id)
-        return user.is_admin if user else False
-
     async def set_banned(self, user_id: int, is_banned: bool) -> User | None:
         return await self.users_dao.set_banned(user_id, is_banned)
-
-    async def set_admin(self, user_id: int, is_admin: bool) -> User | None:
-        return await self.users_dao.set_admin(user_id, is_admin)

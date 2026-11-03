@@ -6,7 +6,6 @@ from datetime import date, datetime, time
 class User:
     user_id: int
     username: str | None
-    is_admin: bool
     is_banned: bool
     groups: list[str]
     created_at: datetime
@@ -56,3 +55,10 @@ class Timetable:
     filename: str | None
     uploaded_by: int
     created_at: datetime
+
+
+@dataclass
+class SheetSource:
+    weekday: int
+    spreadsheet_id: str | None
+    last_header: str | None

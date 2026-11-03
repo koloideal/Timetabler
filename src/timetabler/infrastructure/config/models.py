@@ -21,6 +21,15 @@ class BotConfig:
 
 
 @dataclass
+class SheetsConfig:
+    credentials_path: str
+    schedule_range: str = "A1:H50"
+    date_cell: str = "A1"
+    poll_interval_seconds: int = 180
+
+
+@dataclass
 class Config:
     postgres: PostgresConfig
     bot: BotConfig
+    sheets: SheetsConfig

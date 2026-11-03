@@ -51,11 +51,6 @@ class UsersDAO:
         result = await self.session.execute(query)
         return [self._map_to_domain(u) for u in result.scalars().all()]
 
-    async def get_admins(self) -> list[User]:
-        query = select(OrmUser).where(OrmUser.is_admin)
-        result = await self.session.execute(query)
-        return [self._map_to_domain(u) for u in result.scalars().all()]
-
     async def get_subscribed_to_group(self, group: str) -> list[User]:
         query = select(OrmUser).where(OrmUser.groups.any(literal(group)))
         result = await self.session.execute(query)
@@ -106,27 +101,11 @@ class UsersDAO:
 
         return self._map_to_domain(orm_user)
 
-    async def set_admin(self, user_id: int, is_admin: bool) -> User | None:
-        stmt = (
-            update(OrmUser)
-            .where(OrmUser.user_id == user_id)
-            .values(is_admin=is_admin)
-            .returning(OrmUser)
-        )
-        result = await self.session.execute(stmt)
-        orm_user = result.scalar_one_or_none()
-
-        if not orm_user:
-            return None
-
-        return self._map_to_domain(orm_user)
-
     @staticmethod
     def _map_to_domain(orm_user: OrmUser) -> User:
         return User(
             user_id=orm_user.user_id,
             username=orm_user.username,
-            is_admin=orm_user.is_admin,
             is_banned=orm_user.is_banned,
             groups=list(orm_user.groups),
             created_at=orm_user.created_at,

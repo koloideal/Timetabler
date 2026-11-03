@@ -72,9 +72,11 @@ def parse_rows(
     *,
     date_formats: tuple[str, ...],
     time_format: str,
+    default_date: date | None = None,
+    start_line: int = 2,
 ) -> ParsedTimetable:
     parsed = ParsedTimetable()
-    for line_no, row in enumerate(rows, start=2):
+    for line_no, row in enumerate(rows, start=start_line):
         raw_group = row.get(header_map["group"])
         if raw_group is None or str(raw_group).strip() == "":
             continue
@@ -91,10 +93,18 @@ def parse_rows(
         raw_subgroup = _opt_text(row, header_map, "subgroup")
         raw_time = row.get(header_map["time"]) if "time" in header_map else None
 
+        raw_date = row.get(header_map["date"]) if "date" in header_map else None
+        if raw_date is not None and str(raw_date).strip():
+            entry_date = _parse_date(raw_date, line_no, date_formats)
+        elif default_date is not None:
+            entry_date = default_date
+        else:
+            raise TimetableParseError(f"Строка {line_no}: пустая дата")
+
         parsed.entries.append(
             TimetableEntry(
                 group_id=group_id,
-                date=_parse_date(row.get(header_map["date"]), line_no, date_formats),
+                date=entry_date,
                 position=_parse_position(row.get(header_map["position"]), line_no),
                 subject=subject,
                 teacher=_opt_text(row, header_map, "teacher"),

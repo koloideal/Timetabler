@@ -12,13 +12,18 @@ from aiogram_dialog import setup_dialogs
 from dishka import make_async_container
 from dishka.integrations.aiogram import setup_dishka
 
+from timetabler.application.services.poller import SheetsPoller
 from timetabler.infrastructure.config import load_config
 from timetabler.infrastructure.config.models import Config
-from timetabler.infrastructure.ioc import AppConfigProvider, DatabaseProvider, ParsersProvider, ServicesProvider
+from timetabler.infrastructure.ioc import (
+    AppConfigProvider,
+    DatabaseProvider,
+    ServicesProvider,
+    SheetsProvider,
+)
 from timetabler.infrastructure.logging.logger import setup_logging
 from timetabler.presentation.middlewares.check_ban import CheckBanMiddleware
 from timetabler.presentation.middlewares.reject_not_creator import RejectNotCreatorMiddleware
-from timetabler.presentation.middlewares.reject_not_staff import RejectNotStaffMiddleware
 
 config: Config = load_config("secret_data/config.toml")
 
@@ -36,7 +41,7 @@ setup_logging("secret_data/logger-config.json")
 container = make_async_container(
     DatabaseProvider(),
     ServicesProvider(),
-    ParsersProvider(),
+    SheetsProvider(),
     AppConfigProvider(),
     context={Config: config, Bot: bot},
 )
@@ -48,14 +53,12 @@ async def main() -> None:
     from timetabler.presentation.admin_dialogs import admin_panel_dialog
     from timetabler.presentation.admin_handlers import admin_router
     from timetabler.presentation.group_handlers import group_router
-    from timetabler.presentation.upload_handlers import upload_router
     from timetabler.presentation.user_handlers import user_router
 
-    dp.include_routers(user_router, admin_router, upload_router, group_router, admin_panel_dialog)
+    dp.include_routers(user_router, admin_router, group_router, admin_panel_dialog)
 
     admin_router.message.middleware(RejectNotCreatorMiddleware())
     admin_panel_dialog.callback_query.middleware(RejectNotCreatorMiddleware())
-    upload_router.message.middleware(RejectNotStaffMiddleware())
     dp.update.middleware(CheckBanMiddleware())
 
     setup_dialogs(dp)
@@ -68,8 +71,14 @@ async def main() -> None:
 
     await bot.delete_webhook(drop_pending_updates=True)
 
+    poller = SheetsPoller(container)
+    poll_task = asyncio.create_task(poller.run())
+
     logger.critical("Starting Timetabler...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        poll_task.cancel()
 
 
 if __name__ == "__main__":

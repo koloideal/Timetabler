@@ -7,21 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.timetable import TimetableService
-from timetabler.application.ports import TimetableParser
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.config import new_session_maker
 from timetabler.infrastructure.database.dao import (
     GroupChatsDAO,
+    SheetSourcesDAO,
     StudyGroupsDAO,
     TimetablesDAO,
     UsersDAO,
 )
-from timetabler.infrastructure.parsing.csv_parser import CsvTimetableParser
-from timetabler.infrastructure.parsing.xlsx_parser import XlsxTimetableParser
+from timetabler.infrastructure.sheets import GoogleSheetsClient
 
 
 class DatabaseProvider(Provider):
@@ -55,6 +55,10 @@ class DatabaseProvider(Provider):
     def get_timetables_dao(self, session: AsyncSession) -> TimetablesDAO:
         return TimetablesDAO(session)
 
+    @provide
+    def get_sheet_sources_dao(self, session: AsyncSession) -> SheetSourcesDAO:
+        return SheetSourcesDAO(session)
+
 
 class ServicesProvider(Provider):
     scope = Scope.REQUEST
@@ -76,6 +80,10 @@ class ServicesProvider(Provider):
         return StudyGroupService(study_groups_dao)
 
     @provide
+    def get_sheets_service(self, sheet_sources_dao: SheetSourcesDAO) -> SheetsService:
+        return SheetsService(sheet_sources_dao)
+
+    @provide
     def get_broadcast_service(
         self,
         bot: Bot,
@@ -92,20 +100,16 @@ class ServicesProvider(Provider):
         self,
         timetable_entries_dao: TimetablesDAO,
         study_group_service: StudyGroupService,
-        parsers: dict[str, TimetableParser],
     ) -> TimetableService:
-        return TimetableService(timetable_entries_dao, study_group_service, parsers)
+        return TimetableService(timetable_entries_dao, study_group_service)
 
 
-class ParsersProvider(Provider):
+class SheetsProvider(Provider):
     scope = Scope.APP
 
     @provide
-    def get_timetable_parsers(self, app_config: AppConfig) -> dict[str, TimetableParser]:
-        return {
-            ".xlsx": XlsxTimetableParser(app_config),
-            ".csv": CsvTimetableParser(app_config),
-        }
+    def get_sheets_client(self, config: Config) -> GoogleSheetsClient:
+        return GoogleSheetsClient(config.sheets.credentials_path)
 
 
 class AppConfigProvider(Provider):

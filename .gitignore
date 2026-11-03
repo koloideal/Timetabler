@@ -12,6 +12,8 @@ wheels/
 # secret data
 .env
 secret_data/config.toml
+secret_data/*.json
+!secret_data/logger-config.json
 test.py
 
 logs

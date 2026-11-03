@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 from aiogram.fsm.state import State, StatesGroup
@@ -16,23 +17,24 @@ from aiogram_dialog.widgets.text import Const, Format
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 
-from timetabler.application.services.bot import BotService
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
+from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
 
 logger = logging.getLogger(__name__)
+
+SPREADSHEET_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
+SPREADSHEET_URL_RE = re.compile(r"/d/([A-Za-z0-9_-]+)")
 
 
 class AdminPanelSG(StatesGroup):
     main = State()
     users_list = State()
     user_detail = State()
-    admins_list = State()
-    add_admin_pick = State()
-    add_admin_confirm = State()
     chats_list = State()
     chat_detail = State()
     groups_list = State()
@@ -40,6 +42,9 @@ class AdminPanelSG(StatesGroup):
     group_del_confirm = State()
     group_add_id = State()
     group_add_alias = State()
+    sheets_list = State()
+    sheet_detail = State()
+    sheet_set_input = State()
 
 
 def _is_creator(dialog_manager: DialogManager, config: Config) -> bool:
@@ -60,7 +65,6 @@ async def get_admin_main_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     group_chat_service: FromDishka[GroupChatService],
-    config: FromDishka[Config],
     **kwargs: Any,
 ) -> dict[str, Any]:
     users = await user_service.list_users()
@@ -68,7 +72,6 @@ async def get_admin_main_data(
     return {
         "total_users": len(users),
         "total_chats": len(chats),
-        "is_creator": _is_creator(dialog_manager, config),
     }
 
 
@@ -82,7 +85,7 @@ async def get_users_list_data(
     users = await user_service.list_users()
     users_data = []
     for user in users:
-        badge = "👑" if user.user_id == config.bot.creator_id else "🛡" if user.is_admin else "🚫" if user.is_banned else ""
+        badge = "👑" if user.user_id == config.bot.creator_id else "🚫" if user.is_banned else ""
         users_data.append((f"{badge}{_user_label(user.user_id, user.username)}".strip(), str(user.user_id)))
     return {"users": users_data, "total_users": len(users)}
 
@@ -94,95 +97,7 @@ async def on_user_selected(
     item_id: str,
 ) -> None:
     manager.dialog_data["selected_user_id"] = int(item_id)
-    manager.dialog_data["detail_from"] = "users"
     await manager.switch_to(AdminPanelSG.user_detail)
-
-
-@inject
-async def get_admins_list_data(
-    dialog_manager: DialogManager,
-    user_service: FromDishka[UserService],
-    **kwargs: Any,
-) -> dict[str, Any]:
-    admins = await user_service.list_admins()
-    admins_data = [(_user_label(a.user_id, a.username), str(a.user_id)) for a in admins]
-    return {"admins": admins_data, "total_admins": len(admins)}
-
-
-async def on_admin_selected(
-    call: CallbackQuery,
-    widget: Select,
-    manager: DialogManager,
-    item_id: str,
-) -> None:
-    manager.dialog_data["selected_user_id"] = int(item_id)
-    manager.dialog_data["detail_from"] = "admins"
-    await manager.switch_to(AdminPanelSG.user_detail)
-
-
-@inject
-async def get_add_admin_pick_data(
-    dialog_manager: DialogManager,
-    user_service: FromDishka[UserService],
-    config: FromDishka[Config],
-    **kwargs: Any,
-) -> dict[str, Any]:
-    users = await user_service.list_users()
-    candidates = [
-        (_user_label(u.user_id, u.username), str(u.user_id))
-        for u in users
-        if not u.is_admin and not u.is_banned and u.user_id != config.bot.creator_id
-    ]
-    return {"candidates": candidates, "total_candidates": len(candidates)}
-
-
-async def on_add_admin_pick(
-    call: CallbackQuery,
-    widget: Select,
-    manager: DialogManager,
-    item_id: str,
-) -> None:
-    manager.dialog_data["candidate_user_id"] = int(item_id)
-    await manager.switch_to(AdminPanelSG.add_admin_confirm)
-
-
-@inject
-async def get_add_admin_confirm_data(
-    dialog_manager: DialogManager,
-    user_service: FromDishka[UserService],
-    **kwargs: Any,
-) -> dict[str, Any]:
-    user_id = dialog_manager.dialog_data.get("candidate_user_id")
-    user = await user_service.get_by_id(user_id) if user_id else None
-    if not user:
-        return {}
-    return {
-        "username": _user_label(user.user_id, user.username),
-        "user_id": user.user_id,
-    }
-
-
-@inject
-async def on_add_admin_confirm(
-    call: CallbackQuery,
-    button: Button,
-    manager: DialogManager,
-    user_service: FromDishka[UserService],
-    bot_service: FromDishka[BotService],
-) -> None:
-    user_id = manager.dialog_data.get("candidate_user_id")
-    if not user_id:
-        await call.answer("❌ Пользователь не выбран", show_alert=True)
-        return
-
-    updated = await user_service.set_admin(user_id, True)
-    if not updated:
-        await call.answer("❌ Не удалось назначить", show_alert=True)
-        return
-
-    await bot_service.notify_admin_assigned(user_id)
-    await call.answer("⭐ Админ назначен", show_alert=True)
-    await manager.switch_to(AdminPanelSG.admins_list)
 
 
 @inject
@@ -201,24 +116,19 @@ async def get_user_detail_data(
         return {}
 
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
-    is_creator = _is_creator(dialog_manager, config)
     is_self = bool(event_from_user and event_from_user.id == user.user_id)
     target_is_creator = user.user_id == config.bot.creator_id
 
-    can_ban = not is_self and not target_is_creator and (is_creator or not user.is_admin)
-    can_toggle_admin = is_creator and not target_is_creator
+    can_ban = not is_self and not target_is_creator
 
     return {
         "user_id": user.user_id,
         "username": _user_label(user.user_id, user.username),
         "registered_at": user.created_at.strftime("%d.%m.%Y %H:%M"),
         "groups": _format_groups(user.groups),
-        "admin_status": "да 🛡" if user.is_admin else "нет",
         "ban_status": "🚫 заблокирован" if user.is_banned else "✅ активен",
         "ban_button_text": "✅ Разбанить" if user.is_banned else "🚫 Забанить",
-        "admin_button_text": "🔻 Снять админа" if user.is_admin else "⭐ Сделать админом",
         "can_ban": can_ban,
-        "can_toggle_admin": can_toggle_admin,
     }
 
 
@@ -240,10 +150,6 @@ async def on_ban_toggle(
         await call.answer("❌ Нельзя забанить этого пользователя", show_alert=True)
         return
 
-    if target.is_admin and call.from_user.id != config.bot.creator_id:
-        await call.answer("❌ Банить админов может только создатель", show_alert=True)
-        return
-
     updated = await user_service.set_banned(target.user_id, not target.is_banned)
     if updated:
         await call.answer("✅ Разбанен" if not updated.is_banned else "🚫 Забанен", show_alert=True)
@@ -251,43 +157,8 @@ async def on_ban_toggle(
         await call.answer("❌ Не удалось обновить", show_alert=True)
 
 
-@inject
-async def on_admin_toggle(
-    call: CallbackQuery,
-    button: Button,
-    manager: DialogManager,
-    user_service: FromDishka[UserService],
-    bot_service: FromDishka[BotService],
-    config: FromDishka[Config],
-) -> None:
-    if call.from_user.id != config.bot.creator_id:
-        await call.answer("❌ Управлять админами может только создатель", show_alert=True)
-        return
-
-    user_id = manager.dialog_data.get("selected_user_id")
-    target = await user_service.get_by_id(user_id) if user_id else None
-    if not target:
-        await call.answer("❌ Пользователь не найден", show_alert=True)
-        return
-
-    if target.user_id == config.bot.creator_id:
-        await call.answer("❌ Нельзя менять статус создателя", show_alert=True)
-        return
-
-    updated = await user_service.set_admin(target.user_id, not target.is_admin)
-    if not updated:
-        await call.answer("❌ Не удалось обновить", show_alert=True)
-        return
-
-    if updated.is_admin:
-        await bot_service.notify_admin_assigned(updated.user_id)
-    await call.answer("⭐ Назначен админом" if updated.is_admin else "🔻 Админ снят", show_alert=True)
-
-
 async def on_detail_back(call: CallbackQuery, button: Button, manager: DialogManager) -> None:
-    source = manager.dialog_data.get("detail_from", "users")
-    target = AdminPanelSG.admins_list if source == "admins" else AdminPanelSG.users_list
-    await manager.switch_to(target)
+    await manager.switch_to(AdminPanelSG.users_list)
 
 
 @inject
@@ -472,6 +343,115 @@ async def on_group_delete_confirm(
     await manager.switch_to(AdminPanelSG.groups_list)
 
 
+@inject
+async def get_sheets_list_data(
+    dialog_manager: DialogManager,
+    sheets_service: FromDishka[SheetsService],
+    app_config: FromDishka[AppConfig],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    sources = {s.weekday: s for s in await sheets_service.list_sources()}
+    sheets_data = []
+    for weekday in range(6):
+        source = sources.get(weekday)
+        spreadsheet_id = source.spreadsheet_id if source else None
+        sheets_data.append((
+            f"{app_config.weekdays_short[weekday]} — {spreadsheet_id or 'не задана'}",
+            str(weekday),
+        ))
+    return {"sheets": sheets_data}
+
+
+async def on_weekday_selected(
+    call: CallbackQuery,
+    widget: Select,
+    manager: DialogManager,
+    item_id: str,
+) -> None:
+    manager.dialog_data["selected_weekday"] = int(item_id)
+    await manager.switch_to(AdminPanelSG.sheet_detail)
+
+
+@inject
+async def get_sheet_detail_data(
+    dialog_manager: DialogManager,
+    sheets_service: FromDishka[SheetsService],
+    app_config: FromDishka[AppConfig],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    weekday = dialog_manager.dialog_data.get("selected_weekday")
+    if weekday is None:
+        return {}
+
+    source = await sheets_service.get_source(weekday)
+    return {
+        "weekday_name": app_config.weekdays_short[weekday],
+        "spreadsheet_id": (source.spreadsheet_id if source else None) or "—",
+        "last_header": (source.last_header if source else None) or "—",
+        "has_id": bool(source and source.spreadsheet_id),
+    }
+
+
+@inject
+async def on_sheet_clear(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    sheets_service: FromDishka[SheetsService],
+) -> None:
+    weekday = manager.dialog_data.get("selected_weekday")
+    if weekday is None:
+        await call.answer("❌ День не выбран", show_alert=True)
+        return
+
+    await sheets_service.set_spreadsheet(weekday, None)
+    await call.answer("🗑 ID очищен", show_alert=True)
+    await manager.switch_to(AdminPanelSG.sheets_list)
+
+
+@inject
+async def on_sheet_id_input(
+    message: Message,
+    widget: MessageInput,
+    manager: DialogManager,
+    sheets_service: FromDishka[SheetsService],
+    sheets_client: FromDishka[GoogleSheetsClient],
+    config: FromDishka[Config],
+) -> None:
+    weekday = manager.dialog_data.get("selected_weekday")
+    if weekday is None:
+        await manager.switch_to(AdminPanelSG.sheets_list)
+        return
+
+    text = (message.text or "").strip()
+    url_match = SPREADSHEET_URL_RE.search(text)
+    spreadsheet_id = url_match.group(1) if url_match else text
+
+    if not SPREADSHEET_ID_RE.fullmatch(spreadsheet_id):
+        await message.answer(
+            "❌ Не похоже на ID таблицы.\n"
+            "Пришлите ID или ссылку вида .../d/<ID>/edit"
+        )
+        return
+
+    try:
+        await sheets_client.read_values(spreadsheet_id, config.sheets.date_cell)
+    except SheetAccessError as e:
+        await message.answer(
+            f"❌ Таблица недоступна: {e}\n\n"
+            f"Расшарьте её на сервисный аккаунт:\n"
+            f"<code>{sheets_client.service_account_email}</code>"
+        )
+        return
+    except Exception as e:
+        await message.answer(f"❌ Не удалось прочитать таблицу: {e}")
+        return
+
+    await sheets_service.set_spreadsheet(weekday, spreadsheet_id)
+    await message.answer("✅ ID сохранён, таблица доступна сервисному аккаунту")
+    await manager.switch_to(AdminPanelSG.sheets_list)
+
+
 admin_panel_dialog = Dialog(
     Window(
         Format(
@@ -483,7 +463,7 @@ admin_panel_dialog = Dialog(
             "Выберите раздел:"
         ),
         SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
-        SwitchTo(Const("🛡 Админы"), id="sec_admins", state=AdminPanelSG.admins_list, when="is_creator"),
+        SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
         Row(
             SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
             SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
@@ -511,52 +491,6 @@ admin_panel_dialog = Dialog(
         getter=get_users_list_data,
     ),
     Window(
-        Format("🛡 <b>АДМИНЫ</b> · {total_admins}\n━━━━━━━━━━━━━━━━━━"),
-        ScrollingGroup(
-            Select(
-                Format("{item[0]}"),
-                id="admin_select",
-                item_id_getter=lambda x: x[1],
-                items="admins",
-                on_click=on_admin_selected,
-            ),
-            id="admins_scroll",
-            width=1,
-            height=7,
-            hide_on_single_page=True,
-        ),
-        SwitchTo(Const("➕ Добавить админа"), id="add_admin", state=AdminPanelSG.add_admin_pick),
-        SwitchTo(Const("⬅️ Назад"), id="back_main_admins", state=AdminPanelSG.main),
-        state=AdminPanelSG.admins_list,
-        getter=get_admins_list_data,
-    ),
-    Window(
-        Format("➕ <b>ДОБАВИТЬ АДМИНА</b> · {total_candidates}\n━━━━━━━━━━━━━━━━━━\nВыберите пользователя:"),
-        ScrollingGroup(
-            Select(
-                Format("{item[0]}"),
-                id="candidate_select",
-                item_id_getter=lambda x: x[1],
-                items="candidates",
-                on_click=on_add_admin_pick,
-            ),
-            id="candidates_scroll",
-            width=1,
-            height=7,
-            hide_on_single_page=True,
-        ),
-        SwitchTo(Const("⬅️ Назад"), id="back_admins_pick", state=AdminPanelSG.admins_list),
-        state=AdminPanelSG.add_admin_pick,
-        getter=get_add_admin_pick_data,
-    ),
-    Window(
-        Format("⭐ <b>НАЗНАЧИТЬ АДМИНОМ?</b>\n<pre>ЮЗЕР    {username}\nID      {user_id}</pre>"),
-        Button(Const("✅ Назначить"), id="confirm_add_admin", on_click=on_add_admin_confirm),
-        SwitchTo(Const("⬅️ Назад"), id="back_pick", state=AdminPanelSG.add_admin_pick),
-        state=AdminPanelSG.add_admin_confirm,
-        getter=get_add_admin_confirm_data,
-    ),
-    Window(
         Format(
             "👤 <b>ПОЛЬЗОВАТЕЛЬ</b>\n"
             "<pre>━━━━━━━━━━━━━━━━━━\n"
@@ -564,7 +498,6 @@ admin_panel_dialog = Dialog(
             "USERNAME  {username}\n"
             "REG       {registered_at}\n"
             "ГРУППЫ    {groups}\n"
-            "РОЛЬ      {admin_status}\n"
             "СТАТУС    {ban_status}\n"
             "━━━━━━━━━━━━━━━━━━</pre>"
         ),
@@ -573,12 +506,6 @@ admin_panel_dialog = Dialog(
             id="ban_toggle",
             on_click=on_ban_toggle,
             when="can_ban",
-        ),
-        Button(
-            Format("{admin_button_text}"),
-            id="admin_toggle",
-            on_click=on_admin_toggle,
-            when="can_toggle_admin",
         ),
         Button(Const("⬅️ Назад"), id="back_to_list", on_click=on_detail_back),
         state=AdminPanelSG.user_detail,
@@ -689,5 +616,48 @@ admin_panel_dialog = Dialog(
         Button(Const("⏭ Без алиаса"), id="skip_alias", on_click=on_add_group_skip_alias),
         SwitchTo(Const("⬅️ Назад"), id="back_group_id", state=AdminPanelSG.group_add_id),
         state=AdminPanelSG.group_add_alias,
+    ),
+    Window(
+        Const("📊 <b>ТАБЛИЦЫ</b>\n━━━━━━━━━━━━━━━━━━\nВыберите день недели:"),
+        ScrollingGroup(
+            Select(
+                Format("{item[0]}"),
+                id="sheet_select",
+                item_id_getter=lambda x: x[1],
+                items="sheets",
+                on_click=on_weekday_selected,
+            ),
+            id="sheets_scroll",
+            width=1,
+            height=6,
+            hide_on_single_page=True,
+        ),
+        SwitchTo(Const("⬅️ Назад"), id="back_main_sheets", state=AdminPanelSG.main),
+        state=AdminPanelSG.sheets_list,
+        getter=get_sheets_list_data,
+    ),
+    Window(
+        Format(
+            "📊 <b>ТАБЛИЦА · {weekday_name}</b>\n"
+            "<pre>━━━━━━━━━━━━━━━━━━\n"
+            "ID        {spreadsheet_id}\n"
+            "ШАПКА     {last_header}\n"
+            "━━━━━━━━━━━━━━━━━━</pre>"
+        ),
+        SwitchTo(Const("✏️ Задать ID"), id="set_sheet_id", state=AdminPanelSG.sheet_set_input),
+        Button(Const("🗑 Очистить ID"), id="clear_sheet_id", on_click=on_sheet_clear, when="has_id"),
+        SwitchTo(Const("⬅️ Назад"), id="back_sheets", state=AdminPanelSG.sheets_list),
+        state=AdminPanelSG.sheet_detail,
+        getter=get_sheet_detail_data,
+    ),
+    Window(
+        Const(
+            "✏️ <b>ID ТАБЛИЦЫ</b>\n━━━━━━━━━━━━━━━━━━\n"
+            "Пришлите ID таблицы или ссылку вида\n"
+            "docs.google.com/spreadsheets/d/<ID>/edit"
+        ),
+        MessageInput(on_sheet_id_input, content_types=["text"]),
+        SwitchTo(Const("⬅️ Назад"), id="back_sheet_detail", state=AdminPanelSG.sheet_detail),
+        state=AdminPanelSG.sheet_set_input,
     ),
 )

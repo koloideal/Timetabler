@@ -1,11 +1,9 @@
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 
 from timetabler.application.exceptions import TimetableParseError
-from timetabler.application.ports import TimetableParser
-from timetabler.domain.schemas import ParsedTimetable
 from timetabler.application.services.study_group import StudyGroupService
+from timetabler.domain.schemas import ParsedTimetable
 from timetabler.infrastructure.database.dao import TimetablesDAO
 
 
@@ -21,21 +19,15 @@ class TimetableService:
         self,
         timetables_dao: TimetablesDAO,
         study_group_service: StudyGroupService,
-        parsers: dict[str, TimetableParser],
     ) -> None:
         self.timetables_dao = timetables_dao
         self.study_group_service = study_group_service
-        self.parsers = parsers
 
-    async def import_document(self, filename: str, content: bytes, uploaded_by: int) -> ImportResult:
-        extension = Path(filename).suffix.lower()
-        parser = self.parsers.get(extension)
-        if parser is None:
-            raise TimetableParseError(f"Неподдерживаемый формат «{extension}»")
-
-        parsed = parser.parse(content)
+    async def import_parsed(
+        self, parsed: ParsedTimetable, source: str, uploaded_by: int
+    ) -> ImportResult:
         if not parsed.entries:
-            raise TimetableParseError("Файл пустой — не найдено ни одной пары")
+            raise TimetableParseError("Нет ни одной пары")
 
         known_groups = {g.group_id for g in await self.study_group_service.list_groups()}
         unknown = sorted(
@@ -51,7 +43,7 @@ class TimetableService:
             day_entries = [e for e in parsed.entries if e.date == for_date]
             await self.timetables_dao.replace(
                 for_date,
-                filename,
+                source,
                 uploaded_by,
                 ParsedTimetable(entries=day_entries, base_audiences=parsed.base_audiences),
             )

@@ -35,15 +35,11 @@ async def start(
 @user_router.message(Command("help"))
 async def help_handler(
     message: Message,
-    user_service: FromDishka[UserService],
     config: FromDishka[Config],
     app_config: FromDishka[AppConfig],
 ) -> None:
     assert message.from_user is not None
-    user_id = message.from_user.id
-    if user_id == config.bot.creator_id:
-        await message.answer(app_config.staff_help + app_config.creator_help_extra)
-    elif await user_service.is_admin(user_id):
-        await message.answer(app_config.staff_help)
+    if message.from_user.id == config.bot.creator_id:
+        await message.answer(app_config.creator_help)
     else:
         await message.answer(app_config.user_help)
