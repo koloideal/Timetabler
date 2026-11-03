@@ -1,10 +1,12 @@
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import DialogManager, StartMode
 from dishka import FromDishka
 
 from timetabler.application.services.broadcast import BroadcastService
+from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.presentation.admin_dialogs.admin_panel import AdminPanelSG
@@ -61,5 +63,40 @@ def new_admin_router() -> Router:
         if isinstance(call.message, Message):
             await call.message.edit_reply_markup(reply_markup=None)
         await call.answer("❌ Рассылка пропущена", show_alert=True)
+
+    @router.callback_query(F.data.startswith("chan:approve:"))
+    async def on_channel_approve(
+        call: CallbackQuery,
+        channel_service: FromDishka[ChannelService],
+    ) -> None:
+        chat_id = int((call.data or "").rsplit(":", 1)[-1])
+        channel = await channel_service.approve(chat_id)
+        if call.bot is not None:
+            try:
+                await call.bot.send_message(
+                chat_id, "✅ Бот подключён — сюда будет приходить расписание."
+                )
+            except TelegramAPIError:
+                pass
+        if isinstance(call.message, Message):
+            await call.message.edit_reply_markup(reply_markup=None)
+        title = channel.title if channel else chat_id
+        await call.answer(f"✅ «{title}» в рассылке", show_alert=True)
+
+    @router.callback_query(F.data.startswith("chan:decline:"))
+    async def on_channel_decline(
+        call: CallbackQuery,
+        channel_service: FromDishka[ChannelService],
+    ) -> None:
+        chat_id = int((call.data or "").rsplit(":", 1)[-1])
+        if call.bot is not None:
+            try:
+                await call.bot.leave_chat(chat_id)
+            except TelegramAPIError:
+                pass
+        await channel_service.remove(chat_id)
+        if isinstance(call.message, Message):
+            await call.message.edit_reply_markup(reply_markup=None)
+        await call.answer("❌ Канал отклонён, я вышел", show_alert=True)
 
     return router

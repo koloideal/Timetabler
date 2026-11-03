@@ -10,6 +10,7 @@ from aiogram.types import InlineKeyboardMarkup, InputRichMessage
 from timetabler.domain.schemas import TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.database.dao import (
+    ChannelsDAO,
     GroupChatsDAO,
     StudyGroupsDAO,
     TimetablesDAO,
@@ -54,6 +55,7 @@ class BroadcastService:
         config: AppConfig,
         users_dao: UsersDAO,
         group_chats_dao: GroupChatsDAO,
+        channels_dao: ChannelsDAO,
         study_groups_dao: StudyGroupsDAO,
         timetables_dao: TimetablesDAO,
     ) -> None:
@@ -61,6 +63,7 @@ class BroadcastService:
         self.config = config
         self.users_dao = users_dao
         self.group_chats_dao = group_chats_dao
+        self.channels_dao = channels_dao
         self.study_groups_dao = study_groups_dao
         self.timetables_dao = timetables_dao
         self._logger = logging.getLogger(__name__)
@@ -177,6 +180,19 @@ class BroadcastService:
                     report.users_sent += 1
                 except TelegramForbiddenError:
                     report.users_failed += 1
+
+        all_messages = [
+            (build_broadcast_message(for_date, [part], self.config),
+             subgroup_markup(gid, for_date) if gid in data.split else None)
+            for gid, part in data.parts.items()
+        ]
+        for channel in await self.channels_dao.get_enabled():
+            for markdown, markup in all_messages:
+                try:
+                    await self._send_rich(channel.chat_id, markdown, markup)
+                    report.chats_sent += 1
+                except TelegramForbiddenError:
+                    report.chats_failed += 1
 
         for chat in await self.group_chats_dao.get_all():
             for markdown, markup in self._group_messages(for_date, data, chat.groups):

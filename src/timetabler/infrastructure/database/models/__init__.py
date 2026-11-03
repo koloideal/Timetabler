@@ -1,4 +1,5 @@
 from .base import Base as Base
+from .channel import Channel as Channel
 from .group_chat import GroupChat as GroupChat
 from .setting import Setting as Setting
 from .sheet_source import SheetSource as SheetSource

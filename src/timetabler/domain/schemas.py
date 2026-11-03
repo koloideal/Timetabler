@@ -13,6 +13,14 @@ class User:
 
 
 @dataclass
+class Channel:
+    chat_id: int
+    title: str | None
+    status: str
+    created_at: datetime
+
+
+@dataclass
 class GroupChat:
     chat_id: int
     title: str | None

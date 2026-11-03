@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from timetabler.application.ports import ScheduleParser
 from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
+from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
@@ -21,6 +22,7 @@ from timetabler.infrastructure.config.app import (
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.config import new_session_maker
 from timetabler.infrastructure.database.dao import (
+    ChannelsDAO,
     GroupChatsDAO,
     SettingsDAO,
     SheetSourcesDAO,
@@ -50,6 +52,10 @@ class DatabaseProvider(Provider):
     @provide
     def get_users_dao(self, session: AsyncSession) -> UsersDAO:
         return UsersDAO(session)
+
+    @provide
+    def get_channels_dao(self, session: AsyncSession) -> ChannelsDAO:
+        return ChannelsDAO(session)
 
     @provide
     def get_group_chats_dao(self, session: AsyncSession) -> GroupChatsDAO:
@@ -84,6 +90,10 @@ class ServicesProvider(Provider):
         return BotService(bot, config, users_dao)
 
     @provide
+    def get_channel_service(self, channels_dao: ChannelsDAO) -> ChannelService:
+        return ChannelService(channels_dao)
+
+    @provide
     def get_group_chat_service(self, group_chats_dao: GroupChatsDAO) -> GroupChatService:
         return GroupChatService(group_chats_dao)
 
@@ -110,10 +120,11 @@ class ServicesProvider(Provider):
         app_config: AppConfig,
         users_dao: UsersDAO,
         group_chats_dao: GroupChatsDAO,
+        channels_dao: ChannelsDAO,
         study_groups_dao: StudyGroupsDAO,
         timetables_dao: TimetablesDAO,
     ) -> BroadcastService:
-        return BroadcastService(bot, app_config, users_dao, group_chats_dao, study_groups_dao, timetables_dao)
+        return BroadcastService(bot, app_config, users_dao, group_chats_dao, channels_dao, study_groups_dao, timetables_dao)
 
     @provide
     def get_timetable_service(

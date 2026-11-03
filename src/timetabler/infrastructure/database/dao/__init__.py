@@ -1,3 +1,4 @@
+from .channels_dao import ChannelsDAO as ChannelsDAO
 from .group_chats_dao import GroupChatsDAO as GroupChatsDAO
 from .settings_dao import SettingsDAO as SettingsDAO
 from .sheet_sources_dao import SheetSourcesDAO as SheetSourcesDAO

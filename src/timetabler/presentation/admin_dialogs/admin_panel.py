@@ -4,6 +4,7 @@ from datetime import date
 from typing import Any
 
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import Dialog, DialogManager, Window
 from aiogram_dialog.widgets.input import MessageInput
@@ -20,6 +21,7 @@ from dishka.integrations.aiogram_dialog import inject
 
 from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
+from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.poller import next_study_day
 from timetabler.application.services.settings import SettingsService
@@ -47,6 +49,8 @@ class AdminPanelSG(StatesGroup):
     sheets_settings = State()
     setting_input = State()
     schedule_view = State()
+    channels_list = State()
+    channel_detail = State()
 
 
 def _is_creator(dialog_manager: DialogManager, config: Config) -> bool:
@@ -204,6 +208,146 @@ async def get_chat_detail_data(
         "groups": _format_groups(chat.groups),
         "added_at": chat.created_at.strftime("%d.%m.%Y %H:%M"),
     }
+
+
+
+
+_CHANNEL_STATUS_ICONS = {"pending": "⏳", "approved": "✅", "disabled": "🔕"}
+_CHANNEL_STATUS_LABELS = {"pending": "⏳ ожидает", "approved": "✅ включён", "disabled": "🔕 отключён"}
+
+
+@inject
+async def get_channels_list_data(
+    dialog_manager: DialogManager,
+    channel_service: FromDishka[ChannelService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    channels = await channel_service.list_channels()
+    channels_data = [
+        (f"{_CHANNEL_STATUS_ICONS.get(c.status, '❔')} {c.title or c.chat_id}", str(c.chat_id))
+        for c in channels
+    ]
+    return {"channels": channels_data, "total_channels": len(channels)}
+
+
+async def on_channel_selected(
+    call: CallbackQuery,
+    widget: Select,
+    manager: DialogManager,
+    item_id: str,
+) -> None:
+    manager.dialog_data["selected_channel_id"] = int(item_id)
+    await manager.switch_to(AdminPanelSG.channel_detail)
+
+
+@inject
+async def get_channel_detail_data(
+    dialog_manager: DialogManager,
+    channel_service: FromDishka[ChannelService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    chat_id = dialog_manager.dialog_data.get("selected_channel_id")
+    channel = await channel_service.get_by_id(chat_id) if chat_id else None
+    if not channel:
+        return {}
+    return {
+        "chat_id": channel.chat_id,
+        "title": channel.title or "—",
+        "status": _CHANNEL_STATUS_LABELS.get(channel.status, channel.status),
+        "added_at": channel.created_at.strftime("%d.%m.%Y %H:%M"),
+        "is_pending": channel.status == "pending",
+        "is_approved": channel.status == "approved",
+        "is_disabled": channel.status == "disabled",
+    }
+
+
+@inject
+async def on_channel_approve_btn(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    channel_service: FromDishka[ChannelService],
+) -> None:
+    chat_id = manager.dialog_data.get("selected_channel_id")
+    if chat_id is None or call.bot is None:
+        return
+    await channel_service.approve(chat_id)
+    try:
+        await call.bot.send_message(chat_id, "✅ Бот подключён — сюда будет приходить расписание.")
+    except TelegramAPIError:
+        pass
+    await call.answer("✅ Одобрен")
+    await manager.update({})
+
+
+@inject
+async def on_channel_enable(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    channel_service: FromDishka[ChannelService],
+) -> None:
+    chat_id = manager.dialog_data.get("selected_channel_id")
+    if chat_id is None:
+        return
+    await channel_service.approve(chat_id)
+    await call.answer("🔔 Канал включён")
+    await manager.update({})
+
+
+@inject
+async def on_channel_disable(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    channel_service: FromDishka[ChannelService],
+) -> None:
+    chat_id = manager.dialog_data.get("selected_channel_id")
+    if chat_id is None:
+        return
+    await channel_service.disable(chat_id)
+    await call.answer("🔕 Канал отключён")
+    await manager.update({})
+
+
+@inject
+async def on_channel_test(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+) -> None:
+    chat_id = manager.dialog_data.get("selected_channel_id")
+    if chat_id is None or call.bot is None:
+        return
+    try:
+        await call.bot.send_message(
+            chat_id,
+            "📨 Тестовый пост — расписание будет приходить сюда.",
+        )
+    except TelegramAPIError as e:
+        await call.answer(f"Не смог отправить: {e.message}", show_alert=True)
+        return
+    await call.answer("📨 Отправлено")
+
+
+@inject
+async def on_channel_delete(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    channel_service: FromDishka[ChannelService],
+) -> None:
+    chat_id = manager.dialog_data.get("selected_channel_id")
+    if chat_id is None:
+        return
+    if call.bot is not None:
+        try:
+            await call.bot.leave_chat(chat_id)
+        except TelegramAPIError:
+            pass
+    await channel_service.remove(chat_id)
+    await call.answer("🗑 Удалён, я вышел из канала")
+    await manager.switch_to(AdminPanelSG.channels_list)
 
 
 @inject
@@ -577,6 +721,7 @@ def build_admin_panel_dialog() -> Dialog:
             Row(
                 SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
                 SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
+                SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
             ),
             SwitchTo(Const("⚙️ Настройки"), id="sec_settings", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.main,
@@ -654,6 +799,46 @@ def build_admin_panel_dialog() -> Dialog:
             SwitchTo(Const("⬅️ Назад"), id="back_to_chats", state=AdminPanelSG.chats_list),
             state=AdminPanelSG.chat_detail,
             getter=get_chat_detail_data,
+        ),
+        Window(
+            Format("📢 <b>КАНАЛЫ</b> · {total_channels}\n━━━━━━━━━━━━━━━━━━"),
+            ScrollingGroup(
+                Select(
+                    Format("{item[0]}"),
+                    id="channel_select",
+                    item_id_getter=lambda x: x[1],
+                    items="channels",
+                    on_click=on_channel_selected,
+                ),
+                id="channels_scroll",
+                width=1,
+                height=7,
+                hide_on_single_page=True,
+            ),
+            SwitchTo(Const("⬅️ Назад"), id="back_main_channels", state=AdminPanelSG.main),
+            state=AdminPanelSG.channels_list,
+            getter=get_channels_list_data,
+        ),
+        Window(
+            Format(
+                "📢 <b>КАНАЛ</b>\n"
+                "<pre>━━━━━━━━━━━━━━━━━━\n"
+                "НАЗВАНИЕ  {title}\n"
+                "ID        {chat_id}\n"
+                "СТАТУС    {status}\n"
+                "ДОБАВЛЕН  {added_at}\n"
+                "━━━━━━━━━━━━━━━━━━</pre>"
+            ),
+            Button(Const("✅ Одобрить"), id="ch_approve", on_click=on_channel_approve_btn, when="is_pending"),
+            Row(
+                Button(Const("🔕 Отключить"), id="ch_disable", on_click=on_channel_disable, when="is_approved"),
+                Button(Const("🔔 Включить"), id="ch_enable", on_click=on_channel_enable, when="is_disabled"),
+            ),
+            Button(Const("📨 Тестовый пост"), id="ch_test", on_click=on_channel_test, when="is_approved"),
+            Button(Const("🗑 Удалить"), id="ch_delete", on_click=on_channel_delete),
+            SwitchTo(Const("⬅️ Назад"), id="back_to_channels", state=AdminPanelSG.channels_list),
+            state=AdminPanelSG.channel_detail,
+            getter=get_channel_detail_data,
         ),
         Window(
             Format("📚 <b>ГРУППЫ</b> · {total_groups}\n━━━━━━━━━━━━━━━━━━"),
