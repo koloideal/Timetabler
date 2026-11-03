@@ -16,7 +16,7 @@ from timetabler.infrastructure.database.config import new_session_maker
 from timetabler.infrastructure.database.dao import (
     GroupChatsDAO,
     StudyGroupsDAO,
-    TimetableEntriesDAO,
+    TimetablesDAO,
     UsersDAO,
 )
 from timetabler.infrastructure.parsing.csv_parser import CsvTimetableParser
@@ -51,8 +51,8 @@ class DatabaseProvider(Provider):
         return StudyGroupsDAO(session)
 
     @provide
-    def get_timetable_entries_dao(self, session: AsyncSession) -> TimetableEntriesDAO:
-        return TimetableEntriesDAO(session)
+    def get_timetables_dao(self, session: AsyncSession) -> TimetablesDAO:
+        return TimetablesDAO(session)
 
 
 class ServicesProvider(Provider):
@@ -77,7 +77,7 @@ class ServicesProvider(Provider):
     @provide
     def get_timetable_service(
         self,
-        timetable_entries_dao: TimetableEntriesDAO,
+        timetable_entries_dao: TimetablesDAO,
         study_group_service: StudyGroupService,
         parsers: dict[str, TimetableParser],
     ) -> TimetableService:

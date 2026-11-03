@@ -3,7 +3,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from timetabler.application.ports import TimetableParser
-from timetabler.domain.schemas import TimetableEntry
+from timetabler.domain.schemas import ParsedTimetable
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.parsing.common import check_headers, parse_rows
 
@@ -12,12 +12,12 @@ class XlsxTimetableParser(TimetableParser):
     def __init__(self, config: AppConfig) -> None:
         self.config = config
 
-    def parse(self, content: bytes) -> list[TimetableEntry]:
+    def parse(self, content: bytes) -> ParsedTimetable:
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
         sheet = workbook.worksheets[0]
         rows = list(sheet.iter_rows(values_only=True))
         if not rows:
-            return []
+            return ParsedTimetable()
 
         header_map = check_headers(rows[0], self.config.required_columns)
         dict_rows = [
@@ -28,5 +28,5 @@ class XlsxTimetableParser(TimetableParser):
             dict_rows,
             header_map,
             date_formats=self.config.date_formats,
-            audience_column=self.config.audience_column,
+            time_format=self.config.time_format,
         )

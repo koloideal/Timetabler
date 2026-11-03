@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 
 @dataclass
@@ -33,14 +33,26 @@ class StudyGroup:
 
 @dataclass
 class TimetableEntry:
+    group_id: int
     date: date
-    group: str
     position: int
     subject: str
+    teacher: str | None = None
     audience: str | None = None
+    starts_at: time | None = None
+    subgroup: int | None = None
+
+
+@dataclass
+class ParsedTimetable:
+    entries: list[TimetableEntry] = field(default_factory=list)
+    base_audiences: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass
 class Timetable:
-    date: date
-    entries: list[TimetableEntry] = field(default_factory=list)
+    id: int
+    for_date: date
+    filename: str | None
+    uploaded_by: int
+    created_at: datetime

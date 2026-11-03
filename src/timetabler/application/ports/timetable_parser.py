@@ -1,7 +1,7 @@
 from typing import Protocol
 
-from timetabler.domain.schemas import TimetableEntry
+from timetabler.domain.schemas import ParsedTimetable
 
 
 class TimetableParser(Protocol):
-    def parse(self, content: bytes) -> list[TimetableEntry]: ...
+    def parse(self, content: bytes) -> ParsedTimetable: ...

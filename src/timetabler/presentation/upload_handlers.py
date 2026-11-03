@@ -35,7 +35,8 @@ async def upload_timetable(
     await message.bot.download(document, destination=buffer)
 
     try:
-        result = await timetable_service.import_document(filename, buffer.getvalue())
+        assert message.from_user is not None
+        result = await timetable_service.import_document(filename, buffer.getvalue(), message.from_user.id)
     except TimetableParseError as e:
         await message.answer(f"❌ Не удалось разобрать файл:\n<blockquote>{e}</blockquote>")
         return

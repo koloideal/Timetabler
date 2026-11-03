@@ -1,8 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Iterable, Mapping
 
 from timetabler.application.exceptions import TimetableParseError
-from timetabler.domain.schemas import TimetableEntry
+from timetabler.domain.schemas import ParsedTimetable, TimetableEntry
 
 
 def check_headers(headers: Iterable[object], required_columns: Iterable[str]) -> dict[str, str]:
@@ -34,6 +34,22 @@ def _parse_date(raw: object, line_no: int, date_formats: tuple[str, ...]) -> dat
     raise TimetableParseError(f"Строка {line_no}: непонятная дата «{raw}» (нужно ДД.ММ.ГГГГ)")
 
 
+def _parse_time(raw: object, line_no: int, time_format: str) -> time | None:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw.time()
+    if isinstance(raw, time):
+        return raw
+    text = str(raw).strip()
+    if text in ("", "-", "—"):
+        return None
+    try:
+        return datetime.strptime(text, time_format).time()
+    except ValueError:
+        raise TimetableParseError(f"Строка {line_no}: непонятное время «{raw}» (нужно ЧЧ:ММ)")
+
+
 def _parse_position(raw: object, line_no: int) -> int:
     position = _parse_int(raw, line_no, "position")
     if position <= 0:
@@ -41,14 +57,23 @@ def _parse_position(raw: object, line_no: int) -> int:
     return position
 
 
+def _opt_text(row: Mapping[str, object], header_map: dict[str, str], column: str) -> str | None:
+    key = header_map.get(column)
+    if key is None:
+        return None
+    raw = row.get(key)
+    text = str(raw).strip() if raw is not None else ""
+    return text if text not in ("", "-", "—") else None
+
+
 def parse_rows(
     rows: Iterable[Mapping[str, object]],
     header_map: dict[str, str],
     *,
     date_formats: tuple[str, ...],
-    audience_column: str,
-) -> list[TimetableEntry]:
-    entries: list[TimetableEntry] = []
+    time_format: str,
+) -> ParsedTimetable:
+    parsed = ParsedTimetable()
     for line_no, row in enumerate(rows, start=2):
         raw_group = row.get(header_map["group"])
         if raw_group is None or str(raw_group).strip() == "":
@@ -59,17 +84,23 @@ def parse_rows(
         if not subject:
             raise TimetableParseError(f"Строка {line_no}: пустой subject")
 
-        raw_audience = row.get(header_map.get(audience_column, ""))
-        audience_text = str(raw_audience).strip() if raw_audience is not None else ""
-        audience = audience_text if audience_text not in ("", "-", "—") else None
+        base_audience = _opt_text(row, header_map, "base_audience")
+        if base_audience and group_id not in parsed.base_audiences:
+            parsed.base_audiences[group_id] = base_audience
 
-        entries.append(
+        raw_subgroup = _opt_text(row, header_map, "subgroup")
+        raw_time = row.get(header_map["time"]) if "time" in header_map else None
+
+        parsed.entries.append(
             TimetableEntry(
+                group_id=group_id,
                 date=_parse_date(row.get(header_map["date"]), line_no, date_formats),
-                group=str(group_id),
                 position=_parse_position(row.get(header_map["position"]), line_no),
                 subject=subject,
-                audience=audience,
+                teacher=_opt_text(row, header_map, "teacher"),
+                audience=_opt_text(row, header_map, "audience"),
+                starts_at=_parse_time(raw_time, line_no, time_format),
+                subgroup=_parse_int(raw_subgroup, line_no, "subgroup") if raw_subgroup else None,
             )
         )
-    return entries
+    return parsed
