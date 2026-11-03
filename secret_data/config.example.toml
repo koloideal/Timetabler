@@ -8,9 +8,4 @@ port = 5432
 user = "postgres"
 password = "postgres"
 name = "timetabler"
-
-[sheets]
-credentials_path = "secret_data/service-account-key.json"
-schedule_range = "A1:H50"
-date_cell = "A1"
-poll_interval_seconds = 180
+# Sheets настраиваются в рантайме через /admin → 📊 Таблицы

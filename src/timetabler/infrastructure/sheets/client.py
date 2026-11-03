@@ -21,16 +21,27 @@ class SheetAccessError(Exception):
 
 
 class GoogleSheetsClient:
-    def __init__(self, credentials_path: str) -> None:
+    def __init__(self) -> None:
+        self._credentials_path: str | None = None
+        self._values = None
+        self.service_account_email: str | None = None
+
+    def configure(self, credentials_path: str) -> None:
+        if credentials_path == self._credentials_path:
+            return
         credentials = service_account.Credentials.from_service_account_file(
             credentials_path, scopes=SCOPES
         )
-        self.service_account_email: str = credentials.service_account_email
         self._values = build(
             "sheets", "v4", credentials=credentials, cache_discovery=False
         ).spreadsheets().values()
+        self.service_account_email = credentials.service_account_email
+        self._credentials_path = credentials_path
 
     async def read_values(self, spreadsheet_id: str, a1_range: str) -> list[list[Any]]:
+        if self._values is None:
+            raise SheetAccessError("не задан путь к ключу сервисного аккаунта")
+
         delay = RETRY_BASE_DELAY
         for attempt in range(MAX_ATTEMPTS):
             try:

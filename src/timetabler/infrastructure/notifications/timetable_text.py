@@ -25,9 +25,14 @@ def format_group_schedule(
         header += f" · сбор {base_audience}"
 
     lines = [header, SEPARATOR]
-    ordered = sorted(entries, key=lambda e: (e.position, e.subgroup or 0))
+    ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
     for entry in ordered:
-        position = str(entry.position) if entry.subgroup is None else f"{entry.position}.{entry.subgroup}"
+        if entry.position is None:
+            position = "–"
+        elif entry.subgroup is None:
+            position = str(entry.position)
+        else:
+            position = f"{entry.position}.{entry.subgroup}"
 
         subject_line = f"{position:>2}  {entry.subject}"
         if entry.audience:

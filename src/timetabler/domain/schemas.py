@@ -34,7 +34,7 @@ class StudyGroup:
 class TimetableEntry:
     group_id: int
     date: date
-    position: int
+    position: int | None
     subject: str
     teacher: str | None = None
     audience: str | None = None
@@ -62,3 +62,11 @@ class SheetSource:
     weekday: int
     spreadsheet_id: str | None
     last_header: str | None
+
+
+@dataclass
+class SheetsSettings:
+    credentials_path: str | None
+    schedule_range: str
+    date_cell: str
+    poll_interval_seconds: int

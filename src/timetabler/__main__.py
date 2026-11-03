@@ -18,6 +18,7 @@ from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.ioc import (
     AppConfigProvider,
     DatabaseProvider,
+    ParsersProvider,
     ServicesProvider,
     SheetsProvider,
 )
@@ -42,6 +43,7 @@ container = make_async_container(
     DatabaseProvider(),
     ServicesProvider(),
     SheetsProvider(),
+    ParsersProvider(),
     AppConfigProvider(),
     context={Config: config, Bot: bot},
 )

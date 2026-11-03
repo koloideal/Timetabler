@@ -18,6 +18,13 @@ from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.settings import (
+    SETTING_CREDENTIALS_PATH,
+    SETTING_DATE_CELL,
+    SETTING_POLL_INTERVAL,
+    SETTING_SCHEDULE_RANGE,
+    SettingsService,
+)
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
@@ -29,6 +36,15 @@ logger = logging.getLogger(__name__)
 
 SPREADSHEET_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
 SPREADSHEET_URL_RE = re.compile(r"/d/([A-Za-z0-9_-]+)")
+A1_RANGE_RE = re.compile(r"[A-Za-z]+\d+:[A-Za-z]+\d+")
+A1_CELL_RE = re.compile(r"[A-Za-z]+\d+")
+
+SETTING_FIELDS = {
+    SETTING_CREDENTIALS_PATH: "путь к ключу",
+    SETTING_SCHEDULE_RANGE: "диапазон расписания",
+    SETTING_DATE_CELL: "ячейка даты",
+    SETTING_POLL_INTERVAL: "интервал опроса, сек",
+}
 
 
 class AdminPanelSG(StatesGroup):
@@ -45,6 +61,8 @@ class AdminPanelSG(StatesGroup):
     sheets_list = State()
     sheet_detail = State()
     sheet_set_input = State()
+    sheets_settings = State()
+    setting_input = State()
 
 
 def _is_creator(dialog_manager: DialogManager, config: Config) -> bool:
@@ -415,8 +433,8 @@ async def on_sheet_id_input(
     widget: MessageInput,
     manager: DialogManager,
     sheets_service: FromDishka[SheetsService],
+    settings_service: FromDishka[SettingsService],
     sheets_client: FromDishka[GoogleSheetsClient],
-    config: FromDishka[Config],
 ) -> None:
     weekday = manager.dialog_data.get("selected_weekday")
     if weekday is None:
@@ -434,8 +452,18 @@ async def on_sheet_id_input(
         )
         return
 
+    settings = await settings_service.get_sheets_settings()
+    if not settings.credentials_path:
+        await message.answer("❌ Сначала задайте путь к ключу в ⚙️ Настройки")
+        return
     try:
-        await sheets_client.read_values(spreadsheet_id, config.sheets.date_cell)
+        sheets_client.configure(settings.credentials_path)
+    except Exception as e:
+        await message.answer(f"❌ Не удалось загрузить ключ: {e}")
+        return
+
+    try:
+        await sheets_client.read_values(spreadsheet_id, settings.date_cell)
     except SheetAccessError as e:
         await message.answer(
             f"❌ Таблица недоступна: {e}\n\n"
@@ -450,6 +478,89 @@ async def on_sheet_id_input(
     await sheets_service.set_spreadsheet(weekday, spreadsheet_id)
     await message.answer("✅ ID сохранён, таблица доступна сервисному аккаунту")
     await manager.switch_to(AdminPanelSG.sheets_list)
+
+
+@inject
+async def get_sheets_settings_data(
+    dialog_manager: DialogManager,
+    settings_service: FromDishka[SettingsService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    settings = await settings_service.get_sheets_settings()
+    values = {
+        SETTING_CREDENTIALS_PATH: settings.credentials_path or "—",
+        SETTING_SCHEDULE_RANGE: settings.schedule_range,
+        SETTING_DATE_CELL: settings.date_cell,
+        SETTING_POLL_INTERVAL: str(settings.poll_interval_seconds),
+    }
+    items = [(f"{label} = {values[key]}", key) for key, label in SETTING_FIELDS.items()]
+    return {"settings_items": items}
+
+
+async def on_setting_selected(
+    call: CallbackQuery,
+    widget: Select,
+    manager: DialogManager,
+    item_id: str,
+) -> None:
+    manager.dialog_data["setting_key"] = item_id
+    await manager.switch_to(AdminPanelSG.setting_input)
+
+
+@inject
+async def get_setting_input_data(
+    dialog_manager: DialogManager,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    key = dialog_manager.dialog_data.get("setting_key") or ""
+    return {"setting_label": SETTING_FIELDS.get(key, "?")}
+
+
+@inject
+async def on_setting_input(
+    message: Message,
+    widget: MessageInput,
+    manager: DialogManager,
+    settings_service: FromDishka[SettingsService],
+    sheets_client: FromDishka[GoogleSheetsClient],
+) -> None:
+    key = manager.dialog_data.get("setting_key")
+    if key not in SETTING_FIELDS:
+        await manager.switch_to(AdminPanelSG.sheets_settings)
+        return
+
+    text = (message.text or "").strip()
+
+    if key == SETTING_CREDENTIALS_PATH:
+        try:
+            sheets_client.configure(text)
+        except Exception as e:
+            await message.answer(f"❌ Не удалось загрузить ключ: {e}")
+            return
+        await settings_service.set(key, text)
+        await message.answer(
+            f"✅ Путь сохранён, аккаунт: <code>{sheets_client.service_account_email}</code>"
+        )
+    elif key == SETTING_SCHEDULE_RANGE:
+        if not A1_RANGE_RE.fullmatch(text):
+            await message.answer("❌ Диапазон вида A1:I100, без имени листа")
+            return
+        await settings_service.set(key, text.upper())
+        await message.answer("✅ Диапазон сохранён")
+    elif key == SETTING_DATE_CELL:
+        if not A1_CELL_RE.fullmatch(text):
+            await message.answer("❌ Ячейка вида A1")
+            return
+        await settings_service.set(key, text.upper())
+        await message.answer("✅ Ячейка сохранена")
+    elif key == SETTING_POLL_INTERVAL:
+        if not text.isdigit() or int(text) < 10:
+            await message.answer("❌ Интервал — целое число секунд (мин. 10)")
+            return
+        await settings_service.set(key, text)
+        await message.answer("✅ Интервал сохранён")
+
+    await manager.switch_to(AdminPanelSG.sheets_settings)
 
 
 admin_panel_dialog = Dialog(
@@ -632,6 +743,7 @@ admin_panel_dialog = Dialog(
             height=6,
             hide_on_single_page=True,
         ),
+        SwitchTo(Const("⚙️ Настройки"), id="sheets_settings", state=AdminPanelSG.sheets_settings),
         SwitchTo(Const("⬅️ Назад"), id="back_main_sheets", state=AdminPanelSG.main),
         state=AdminPanelSG.sheets_list,
         getter=get_sheets_list_data,
@@ -659,5 +771,34 @@ admin_panel_dialog = Dialog(
         MessageInput(on_sheet_id_input, content_types=["text"]),
         SwitchTo(Const("⬅️ Назад"), id="back_sheet_detail", state=AdminPanelSG.sheet_detail),
         state=AdminPanelSG.sheet_set_input,
+    ),
+    Window(
+        Const("⚙️ <b>НАСТРОЙКИ SHEETS</b>\n━━━━━━━━━━━━━━━━━━\nВыберите параметр:"),
+        ScrollingGroup(
+            Select(
+                Format("{item[0]}"),
+                id="setting_select",
+                item_id_getter=lambda x: x[1],
+                items="settings_items",
+                on_click=on_setting_selected,
+            ),
+            id="settings_scroll",
+            width=1,
+            height=5,
+            hide_on_single_page=True,
+        ),
+        SwitchTo(Const("⬅️ Назад"), id="back_sheets_settings", state=AdminPanelSG.sheets_list),
+        state=AdminPanelSG.sheets_settings,
+        getter=get_sheets_settings_data,
+    ),
+    Window(
+        Format(
+            "✏️ <b>{setting_label}</b>\n━━━━━━━━━━━━━━━━━━\n"
+            "Пришлите новое значение:"
+        ),
+        MessageInput(on_setting_input, content_types=["text"]),
+        SwitchTo(Const("⬅️ Назад"), id="back_setting", state=AdminPanelSG.sheets_settings),
+        state=AdminPanelSG.setting_input,
+        getter=get_setting_input_data,
     ),
 )

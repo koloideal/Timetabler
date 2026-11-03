@@ -47,7 +47,7 @@ class TimetableEntry(Base):
     study_group_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("study_groups.group_id"), nullable=False, index=True
     )
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     subject: Mapped[str] = mapped_column(String, nullable=False)
     teacher: Mapped[str | None] = mapped_column(String, nullable=True)
     audience: Mapped[str | None] = mapped_column(String, nullable=True)
