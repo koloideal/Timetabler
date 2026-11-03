@@ -20,6 +20,7 @@ from timetabler.application.services.bot import BotService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
+from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 
 logger = logging.getLogger(__name__)
@@ -420,6 +421,7 @@ async def on_add_group_alias_input(
     widget: MessageInput,
     manager: DialogManager,
     study_group_service: FromDishka[StudyGroupService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     group_id = manager.dialog_data.get("new_group_id")
     if not group_id:
@@ -427,8 +429,8 @@ async def on_add_group_alias_input(
         return
 
     alias = (message.text or "").strip()
-    if len(alias) > 64:
-        await message.answer("❌ Алиас слишком длинный (макс. 64 символа)")
+    if len(alias) > app_config.max_alias_length:
+        await message.answer(f"❌ Алиас слишком длинный (макс. {app_config.max_alias_length} символа)")
         return
 
     await _create_group(manager, study_group_service, group_id, alias or None)

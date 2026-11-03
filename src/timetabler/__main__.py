@@ -14,7 +14,7 @@ from dishka.integrations.aiogram import setup_dishka
 
 from timetabler.infrastructure.config import load_config
 from timetabler.infrastructure.config.models import Config
-from timetabler.infrastructure.ioc import DatabaseProvider, ParsersProvider, ServicesProvider
+from timetabler.infrastructure.ioc import AppConfigProvider, DatabaseProvider, ParsersProvider, ServicesProvider
 from timetabler.infrastructure.logging.logger import setup_logging
 from timetabler.presentation.middlewares.check_ban import CheckBanMiddleware
 from timetabler.presentation.middlewares.reject_not_creator import RejectNotCreatorMiddleware
@@ -37,6 +37,7 @@ container = make_async_container(
     DatabaseProvider(),
     ServicesProvider(),
     ParsersProvider(),
+    AppConfigProvider(),
     context={Config: config, Bot: bot},
 )
 

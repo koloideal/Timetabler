@@ -4,15 +4,13 @@ from typing import Any, override
 
 import orjson
 
-_BUILTIN_ATTRS = frozenset({
-    "args", "asctime", "created", "exc_info", "exc_text", "filename",
-    "funcName", "levelname", "levelno", "lineno", "module", "msecs",
-    "message", "msg", "name", "pathname", "process", "processName",
-    "relativeCreated", "stack_info", "thread", "threadName", "taskName",
-})
-
-
 class MyJSONFormatter(logging.Formatter):
+    BUILTIN_ATTRS = frozenset({
+        "args", "asctime", "created", "exc_info", "exc_text", "filename",
+        "funcName", "levelname", "levelno", "lineno", "module", "msecs",
+        "message", "msg", "name", "pathname", "process", "processName",
+        "relativeCreated", "stack_info", "thread", "threadName", "taskName",
+    })
     def __init__(self, *, fmt_keys: dict[str, str] | None = None) -> None:
         super().__init__()
         self.fmt_keys = fmt_keys if fmt_keys is not None else {}
@@ -40,7 +38,7 @@ class MyJSONFormatter(logging.Formatter):
         message.update(always_fields)
 
         for key, val in record.__dict__.items():
-            if key not in _BUILTIN_ATTRS:
+            if key not in self.BUILTIN_ATTRS:
                 message[key] = val
 
         return message

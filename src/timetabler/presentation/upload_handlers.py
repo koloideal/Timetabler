@@ -8,21 +8,9 @@ from dishka import FromDishka
 
 from timetabler.application.exceptions import TimetableParseError
 from timetabler.application.services.timetable import TimetableService
+from timetabler.infrastructure.config.app import AppConfig
 
 logger = logging.getLogger(__name__)
-
-SUPPORTED_EXTENSIONS = (".xlsx", ".csv")
-FORMAT_HINT = (
-    "📄 Поддерживаю только <b>.xlsx</b> и <b>.csv</b>\n\n"
-    "Формат — первая строка заголовок, колонки:\n"
-    "<blockquote><code>group,date,position,subject,audience</code></blockquote>\n"
-    "• <code>group</code> — 4-значный ID группы\n"
-    "• <code>date</code> — ДД.ММ.ГГГГ\n"
-    "• <code>position</code> — номер пары\n"
-    "• <code>subject</code> — предмет\n"
-    "• <code>audience</code> — аудитория (можно пустым)\n\n"
-    "Лишние колонки игнорируются."
-)
 
 upload_router = Router()
 upload_router.message.filter(F.chat.type == ChatType.PRIVATE)
@@ -32,13 +20,14 @@ upload_router.message.filter(F.chat.type == ChatType.PRIVATE)
 async def upload_timetable(
     message: Message,
     timetable_service: FromDishka[TimetableService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     document = message.document
     assert document is not None
     filename = document.file_name or ""
 
-    if not filename.lower().endswith(SUPPORTED_EXTENSIONS):
-        await message.answer(FORMAT_HINT)
+    if not filename.lower().endswith(app_config.supported_extensions):
+        await message.answer(app_config.format_hint)
         return
 
     buffer = BytesIO()

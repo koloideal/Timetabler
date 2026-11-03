@@ -7,30 +7,10 @@ from dishka import FromDishka
 
 from timetabler.application.services.bot import BotService
 from timetabler.application.services.user import UserService
+from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 
 logger = logging.getLogger(__name__)
-
-USER_HELP = (
-    "ℹ️ <b>Как пользоваться ботом</b>\n\n"
-    "• /start — регистрация\n"
-    "• Выберите свои учебные группы — подписки появятся совсем скоро\n"
-    "• Когда админ загружает новое расписание — бот присылает его сюда\n\n"
-    "<i>Бот также работает в групповых чатах.</i>"
-)
-
-STAFF_HELP = (
-    "🛠 <b>Как работать с ботом</b>\n\n"
-    "• Отправьте файл расписания (<b>.xlsx</b> или <b>.csv</b>) прямо в этот чат — "
-    "бот разберёт его и сохранит\n"
-    "• Формат: заголовок <code>group,date,position,subject,audience</code>, "
-    "дата ДД.ММ.ГГГГ, group — 4-значный ID\n"
-    "• Группы из файла должны существовать в справочнике\n"
-    "• Повторная загрузка на ту же дату заменяет расписание\n"
-    "• После загрузки бот покажет отчёт: даты, пары, группы"
-)
-
-CREATOR_HELP_EXTRA = "\n\n• /admin — админ-панель"
 
 user_router = Router()
 
@@ -56,12 +36,13 @@ async def help_handler(
     message: Message,
     user_service: FromDishka[UserService],
     config: FromDishka[Config],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     assert message.from_user is not None
     user_id = message.from_user.id
     if user_id == config.bot.creator_id:
-        await message.answer(STAFF_HELP + CREATOR_HELP_EXTRA)
+        await message.answer(app_config.staff_help + app_config.creator_help_extra)
     elif await user_service.is_admin(user_id):
-        await message.answer(STAFF_HELP)
+        await message.answer(app_config.staff_help)
     else:
-        await message.answer(USER_HELP)
+        await message.answer(app_config.user_help)

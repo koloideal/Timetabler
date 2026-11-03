@@ -10,6 +10,7 @@ from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.timetable import TimetableService
 from timetabler.application.ports import TimetableParser
 from timetabler.application.services.user import UserService
+from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.config import new_session_maker
 from timetabler.infrastructure.database.dao import (
@@ -87,8 +88,14 @@ class ParsersProvider(Provider):
     scope = Scope.APP
 
     @provide
-    def get_timetable_parsers(self) -> dict[str, TimetableParser]:
+    def get_timetable_parsers(self, app_config: AppConfig) -> dict[str, TimetableParser]:
         return {
-            ".xlsx": XlsxTimetableParser(),
-            ".csv": CsvTimetableParser(),
+            ".xlsx": XlsxTimetableParser(app_config),
+            ".csv": CsvTimetableParser(app_config),
         }
+
+
+class AppConfigProvider(Provider):
+    @provide(scope=Scope.APP)
+    def get_app_config(self) -> AppConfig:
+        return AppConfig()
