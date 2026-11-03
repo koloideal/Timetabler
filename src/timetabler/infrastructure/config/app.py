@@ -63,6 +63,7 @@ class AppConfig:
     time_format: str = "%H:%M"
     max_alias_length: int = 64
     separator: str = "━━━━━━━━━━━━━━━━━━"
+    rich_message_limit: int = 32000
     grid: GridParserConfig = field(default_factory=GridParserConfig)
     sheets_client: SheetsClientConfig = field(default_factory=SheetsClientConfig)
     sheets_settings: SheetsSettingsConfig = field(default_factory=SheetsSettingsConfig)

@@ -1,13 +1,17 @@
-from aiogram import Router
+from datetime import date
+
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InputRichMessage, Message
 from aiogram_dialog import DialogManager, StartMode
 from dishka import FromDishka
 
 from timetabler.application.services.bot import BotService
+from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
+from timetabler.infrastructure.notifications.timetable_text import subgroup_markup_mode
 from timetabler.presentation.user_dialogs import UserMenuSG
 
 
@@ -38,5 +42,39 @@ def new_user_router() -> Router:
             await message.answer(app_config.creator_help)
         else:
             await message.answer(app_config.user_help)
+
+    @router.callback_query(F.data.startswith("sg:"))
+    async def on_subgroup_mode(
+        call: CallbackQuery,
+        broadcast_service: FromDishka[BroadcastService],
+    ) -> None:
+        try:
+            _, gid_s, date_s, mode = (call.data or "").split(":")
+            group_id = int(gid_s)
+            for_date = date(int(date_s[:4]), int(date_s[4:6]), int(date_s[6:8]))
+        except (ValueError, AttributeError):
+            await call.answer()
+            return
+        if mode not in {"a", "1", "2"}:
+            await call.answer()
+            return
+
+        current = subgroup_markup_mode(
+            call.message.reply_markup if isinstance(call.message, Message) else None
+        )
+        if mode == current:
+            await call.answer()
+            return
+
+        content = await broadcast_service.build_group_content(for_date, group_id, mode)
+        if content is None or not isinstance(call.message, Message):
+            await call.answer("Нет расписания за этот день", show_alert=True)
+            return
+        markdown, markup = content
+        await call.message.edit_text(
+            rich_message=InputRichMessage(markdown=markdown),
+            reply_markup=markup,
+        )
+        await call.answer()
 
     return router

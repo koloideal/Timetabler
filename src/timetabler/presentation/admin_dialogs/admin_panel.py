@@ -432,34 +432,40 @@ async def on_sheet_id_input(
 async def get_schedule_view_data(
     dialog_manager: DialogManager,
     broadcast_service: FromDishka[BroadcastService],
+    study_group_service: FromDishka[StudyGroupService],
     app_config: FromDishka[AppConfig],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target = next_study_day(date.today())
     preview = await broadcast_service.build_preview(target)
+    groups = await study_group_service.list_groups()
     weekday = app_config.weekdays_short[target.weekday()]
     return {
         "schedule_date": f"{target.strftime('%d.%m.%Y')} ({weekday})",
         "groups": preview.groups if preview else 0,
         "lessons": preview.lessons if preview else 0,
         "has_schedule": preview is not None,
+        "schedule_groups": [("📚 Все группы", "all")]
+        + [(g.display_name, str(g.group_id)) for g in groups],
     }
 
 
 @inject
-async def on_show_schedule(
+async def on_schedule_group_selected(
     call: CallbackQuery,
-    button: Button,
+    widget: Select,
     manager: DialogManager,
+    item_id: str,
     broadcast_service: FromDishka[BroadcastService],
     bot_service: FromDishka[BotService],
 ) -> None:
-    preview = await broadcast_service.build_preview(next_study_day(date.today()))
+    group_id = None if item_id == "all" else int(item_id)
+    preview = await broadcast_service.build_preview(next_study_day(date.today()), group_id)
     if preview is None:
         await call.answer("Нет расписания", show_alert=True)
         return
     await bot_service.send_rich_to_creator(preview.markdown)
-    await call.answer("📨 Отправлено", show_alert=True)
+    await call.answer()
 
 
 @inject
@@ -796,9 +802,23 @@ def build_admin_panel_dialog() -> Dialog:
                 "ДЕНЬ     {schedule_date}\n"
                 "ГРУПП    {groups}\n"
                 "ПАР      {lessons}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>"
+                "━━━━━━━━━━━━━━━━━━</pre>\n"
+                "Выберите группу для просмотра:"
             ),
-            Button(Const("📨 Показать таблицей"), id="show_schedule", on_click=on_show_schedule, when="has_schedule"),
+            ScrollingGroup(
+                Select(
+                    Format("{item[0]}"),
+                    id="schedule_group_select",
+                    item_id_getter=lambda x: x[1],
+                    items="schedule_groups",
+                    on_click=on_schedule_group_selected,
+                ),
+                id="schedule_groups_scroll",
+                width=2,
+                height=5,
+                hide_on_single_page=True,
+                when="has_schedule",
+            ),
             SwitchTo(Const("⬅️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
             state=AdminPanelSG.schedule_view,
             getter=get_schedule_view_data,

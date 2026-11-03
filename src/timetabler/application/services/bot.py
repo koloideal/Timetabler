@@ -48,14 +48,19 @@ class BotService:
         except TelegramForbiddenError:
             self._logger.warning("Cannot notify creator %s: bot is blocked", self.config.bot.creator_id)
 
-    async def send_rich_to_creator(
-        self, markdown: str, reply_markup: InlineKeyboardMarkup | None = None
+    async def send_rich_message(
+        self, chat_id: int, markdown: str, reply_markup: InlineKeyboardMarkup | None = None
     ) -> None:
         await self.bot.send_rich_message(
-            chat_id=self.config.bot.creator_id,
+            chat_id=chat_id,
             rich_message=InputRichMessage(markdown=markdown),
             reply_markup=reply_markup,
         )
+
+    async def send_rich_to_creator(
+        self, markdown: str, reply_markup: InlineKeyboardMarkup | None = None
+    ) -> None:
+        await self.send_rich_message(self.config.bot.creator_id, markdown, reply_markup)
 
     async def ask_broadcast_confirmation(self, preview_markdown: str) -> None:
         markup = InlineKeyboardMarkup(
