@@ -6,7 +6,6 @@ from datetime import date, datetime, timedelta, timezone
 import orjson
 
 from timetabler.application.ports import CreatorNotifier, ScheduleParser
-from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
@@ -122,7 +121,6 @@ class DetectionService:
         settings_service: SettingsService,
         sheets_service: SheetsService,
         revision_service: RevisionService,
-        broadcast_service: BroadcastService,
         notifier: CreatorNotifier,
         config: RevisionsConfig,
     ) -> None:
@@ -131,17 +129,16 @@ class DetectionService:
         self.settings_service = settings_service
         self.sheets_service = sheets_service
         self.revision_service = revision_service
-        self.broadcast_service = broadcast_service
         self.notifier = notifier
         self.config = config
         self._logger = logging.getLogger(__name__)
         self._insane_hashes: set[str] = set()
 
-    async def poll_day(self, for_date: date) -> None:
+    async def poll_day(self, for_date: date) -> Revision | None:
         weekday = for_date.weekday()
         source = await self.sheets_service.get_source(weekday)
         if not source or not source.spreadsheet_id:
-            return
+            return None
 
         settings = await self.settings_service.get_sheets_settings()
         values = await self.sheets_client.read_values(
@@ -152,8 +149,8 @@ class DetectionService:
         settling = await self.revision_service.get_settling(for_date)
         if content_hash == source.last_hash:
             if settling is not None:
-                await self._on_stable_poll(settling)
-            return
+                return await self._on_stable_poll(settling)
+            return None
 
         published = await self.revision_service.get_published(for_date)
         if (
@@ -164,10 +161,10 @@ class DetectionService:
             await self.revision_service.delete(settling.id)
             await self.sheets_service.set_last_hash(weekday, content_hash)
             self._logger.info("Revision candidate %s reverted to published", settling.id)
-            return
+            return None
 
         if content_hash in self._insane_hashes:
-            return
+            return None
 
         marker = await self._read_marker(source.spreadsheet_id, settings.date_cell)
         parsed = self.parser.parse(values, default_date=for_date)
@@ -180,16 +177,17 @@ class DetectionService:
                 "Detected insane document for %s (empty or groups dropped), skipping",
                 for_date,
             )
-            return
+            return None
 
         if settling is not None:
-            await self._refresh(settling, parsed, marker, content_hash, published, parent_entries)
+            approved = await self._refresh(settling, parsed, marker, content_hash, published, parent_entries)
         else:
-            await self._create(for_date, parsed, marker, content_hash, published, parent_entries)
+            approved = await self._create(for_date, parsed, marker, content_hash, published, parent_entries)
 
         await self.sheets_service.set_last_hash(weekday, content_hash)
         if marker:
             await self.sheets_service.mark_header(weekday, marker)
+        return approved
 
     async def _create(
         self,
@@ -199,14 +197,14 @@ class DetectionService:
         content_hash: str,
         published: Revision | None,
         parent_entries: list[TimetableEntry],
-    ) -> None:
+    ) -> Revision | None:
         kind = "new" if published is None or marker != published.header else "edit"
         if kind == "edit":
             assert published is not None
             changed, diff = compute_diff(parent_entries, published.base_audiences, parsed)
             if not changed:
                 self._logger.info("Formatting-only change for %s, skipped", for_date)
-                return
+                return None
         else:
             changed = sorted({e.group_id for e in parsed.entries})
             diff = {}
@@ -226,7 +224,8 @@ class DetectionService:
             "Detected %s revision %s for %s", kind, revision.id, for_date
         )
         if kind == "new":
-            await self._settle(revision)
+            return await self._settle(revision)
+        return None
 
     async def _refresh(
         self,
@@ -236,7 +235,7 @@ class DetectionService:
         content_hash: str,
         published: Revision | None,
         parent_entries: list[TimetableEntry],
-    ) -> None:
+    ) -> Revision | None:
         kind = "new" if published is None or marker != published.header else "edit"
         if kind == "edit":
             assert published is not None
@@ -244,7 +243,7 @@ class DetectionService:
             if not changed:
                 await self.revision_service.delete(settling.id)
                 self._logger.info("Revision candidate %s became no-op", settling.id)
-                return
+                return None
         else:
             changed = sorted({e.group_id for e in parsed.entries})
             diff = {}
@@ -261,33 +260,34 @@ class DetectionService:
             parsed=parsed,
         )
         if kind == "new" and updated is not None:
-            await self._settle(updated)
+            return await self._settle(updated)
+        return None
 
-    async def _on_stable_poll(self, settling: Revision) -> None:
+    async def _on_stable_poll(self, settling: Revision) -> Revision | None:
         rev = await self.revision_service.bump_stable(settling.id)
         if rev is None:
-            return
+            return None
         elapsed = datetime.now(timezone.utc) - rev.detected_at
         if (
             rev.stable_polls >= self.config.stable_polls
             or elapsed >= timedelta(seconds=self.config.max_settle_seconds)
         ):
-            await self._settle(rev)
+            return await self._settle(rev)
+        return None
 
-    async def _settle(self, revision: Revision) -> None:
+    async def _settle(self, revision: Revision) -> Revision | None:
         rev = await self.revision_service.mark_settled(
             revision.id, datetime.now(timezone.utc)
         )
-        await self._gate(rev or revision)
+        return await self._gate(rev or revision)
 
-    async def _gate(self, revision: Revision) -> None:
+    async def _gate(self, revision: Revision) -> Revision | None:
         settings = await self.settings_service.get_sheets_settings()
         if settings.require_confirmation:
             rev = await self.revision_service.set_status(revision.id, "pending_approval")
             await self.notifier.ask_revision_approval(rev or revision)
-        else:
-            rev = await self.revision_service.set_status(revision.id, "approved")
-            await self.broadcast_service.publish_revision(rev or revision)
+            return None
+        return await self.revision_service.set_status(revision.id, "approved")
 
     def _is_sane(
         self, parsed: ParsedTimetable, parent_entries: list[TimetableEntry]

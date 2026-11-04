@@ -46,14 +46,13 @@ class SheetsPoller:
             settings = await settings_service.get_sheets_settings()
             poll_interval = settings.poll_interval_seconds
 
-            for revision in await revision_service.get_by_status("approved"):
-                await broadcast_service.publish_revision(revision)
+            approved = await revision_service.get_by_status("approved")
 
             today = date.today()
             days = ([today] if today.weekday() < 6 else []) + [next_study_day(today)]
             for for_date in days:
                 try:
-                    await detection.poll_day(for_date)
+                    revision = await detection.poll_day(for_date)
                 except (SheetAccessError, TimetableParseError) as e:
                     self._log_error_once(for_date, f"{e}")
                 except Exception as e:
@@ -61,8 +60,13 @@ class SheetsPoller:
                     self._log_error_once(for_date, f"{type(e).__name__}: {e}")
                 else:
                     self._clear_error(for_date)
+                    if revision is not None:
+                        approved.append(revision)
 
-            return poll_interval
+        for revision in approved:
+            await broadcast_service.publish_revision(revision)
+
+        return poll_interval
 
     def _log_error_once(self, key: object, message: str) -> None:
         if self._errors.get(key) != message:

@@ -161,13 +161,12 @@ class ServicesProvider(Provider):
         settings_service: SettingsService,
         sheets_service: SheetsService,
         revision_service: RevisionService,
-        broadcast_service: BroadcastService,
         notifier: CreatorNotifier,
         revisions_config: RevisionsConfig,
     ) -> DetectionService:
         return DetectionService(
             sheets_client, parser, settings_service, sheets_service,
-            revision_service, broadcast_service, notifier, revisions_config,
+            revision_service, notifier, revisions_config,
         )
 
 
