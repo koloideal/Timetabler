@@ -6,7 +6,7 @@ from aiogram import Bot, F
 from aiogram.enums import ChatMemberStatus
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, User
-from aiogram_dialog import Dialog, DialogManager, Window
+from aiogram_dialog import Dialog, DialogManager, StartMode, Window
 from aiogram_dialog.widgets.kbd import (
     Button,
     Column,
@@ -316,9 +316,17 @@ async def on_toggle_active(
     )
 
 
-def build_group_setup_dialog() -> Dialog:
+async def on_back_to_menu(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
     from timetabler.presentation.user_dialogs.menu import UserMenuSG
 
+    await dialog_manager.start(UserMenuSG.main, mode=StartMode.RESET_STACK)
+
+
+def build_group_setup_dialog() -> Dialog:
     return Dialog(
         Window(
             Const(
@@ -341,7 +349,7 @@ def build_group_setup_dialog() -> Dialog:
                 ),
                 when=F["has_chats"],
             ),
-            SwitchTo(Const("◀️ В главное меню"), id="to_menu", state=UserMenuSG.main),
+            Button(Const("◀️ В главное меню"), id="to_menu", on_click=on_back_to_menu),
             state=GroupSetupSG.chats_list,
             getter=get_chats_list_data,
         ),
@@ -365,7 +373,7 @@ def build_group_setup_dialog() -> Dialog:
                     items="groups",
                 ),
                 id="chat_groups_scroll",
-                width=2,
+                width=3,
                 height=7,
                 when=F["has_groups"],
             ),

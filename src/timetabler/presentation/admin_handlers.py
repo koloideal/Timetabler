@@ -30,7 +30,6 @@ def new_admin_router() -> Router:
             await call.answer("⚠️ Уже обработано", show_alert=True)
             return
 
-        await revision_service.set_status(revision.id, "approved")
         await broadcast_service.publish_revision(revision)
 
         if isinstance(call.message, Message):

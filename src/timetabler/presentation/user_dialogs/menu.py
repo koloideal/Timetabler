@@ -9,6 +9,7 @@ from aiogram_dialog.widgets.kbd import (
     Button,
     ManagedMultiselect,
     Multiselect,
+    Row,
     ScrollingGroup,
     SwitchTo,
 )
@@ -45,16 +46,17 @@ async def get_user_menu_data(
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
     subscribed = set(user.groups) if user else set()
-    total = len(await study_group_service.list_groups())
+    aliases = {
+        str(g.group_id): g.alias
+        for g in await study_group_service.list_groups()
+    }
+    labels = [
+        f"{g} — {aliases[g]}" if aliases.get(g) else g
+        for g in sorted(subscribed, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
+    ]
     enabled = user.notifications_enabled if user else True
-    name = ""
-    if event_from_user is not None:
-        name = event_from_user.first_name or event_from_user.username or ""
     return {
-        "name": name,
-        "subscribed": len(subscribed),
-        "total_groups": total,
-        "notifications": "🟢 вкл" if enabled else "🔴 выкл",
+        "subscribed_groups": ", ".join(labels) or "—",
         "notifications_btn": (
             "🔕 Выключить уведомления" if enabled else "🔔 Включить уведомления"
         ),
@@ -76,8 +78,30 @@ async def on_toggle_notifications(
     )
 
 
+async def _show_schedule(
+    call: CallbackQuery,
+    for_date: date,
+    user_service: UserService,
+    broadcast_service: BroadcastService,
+    notifier: TelegramNotifier,
+    app_config: AppConfig,
+) -> None:
+    user = await user_service.get_by_id(call.from_user.id)
+    if user is None or not user.groups:
+        await call.answer("❌ Сначала выберите группы в подписках", show_alert=True)
+        return
+    day = await broadcast_service.day_schedule(for_date)
+    messages = group_messages(day, for_date, user.groups, app_config)
+    if not messages:
+        await call.answer("❌ Нет расписания за этот день", show_alert=True)
+        return
+    for markdown, markup in messages:
+        await notifier.send_rich_message(call.from_user.id, markdown, markup)
+    await call.answer()
+
+
 @inject
-async def on_show_my_schedule(
+async def on_show_today(
     call: CallbackQuery,
     button: Button,
     manager: DialogManager,
@@ -86,19 +110,25 @@ async def on_show_my_schedule(
     notifier: FromDishka[TelegramNotifier],
     app_config: FromDishka[AppConfig],
 ) -> None:
-    user = await user_service.get_by_id(call.from_user.id)
-    if user is None or not user.groups:
-        await call.answer("❌ Сначала выберите группы в подписках", show_alert=True)
-        return
-    target = next_study_day(date.today())
-    day = await broadcast_service.day_schedule(target)
-    messages = group_messages(day, target, user.groups, app_config)
-    if not messages:
-        await call.answer("❌ Расписания пока нет", show_alert=True)
-        return
-    for markdown, markup in messages:
-        await notifier.send_rich_message(call.from_user.id, markdown, markup)
-    await call.answer()
+    await _show_schedule(
+        call, date.today(), user_service, broadcast_service, notifier, app_config
+    )
+
+
+@inject
+async def on_show_tomorrow(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    user_service: FromDishka[UserService],
+    broadcast_service: FromDishka[BroadcastService],
+    notifier: FromDishka[TelegramNotifier],
+    app_config: FromDishka[AppConfig],
+) -> None:
+    await _show_schedule(
+        call, next_study_day(date.today()),
+        user_service, broadcast_service, notifier, app_config,
+    )
 
 
 @inject
@@ -167,15 +197,19 @@ def build_user_menu_dialog() -> Dialog:
     return Dialog(
         Window(
             Format(
-                "<b>👋 Привет, {name}!</b>\n\n"
-                "Присылаю новое расписание, как только оно появляется.\n\n"
-                "🎓 <b>Подписка:</b> {subscribed} из {total_groups} групп\n"
-                "🔔 <b>Уведомления:</b> {notifications}"
+                "<b>📅 Timetabler</b>\n\n"
+                "🎓 <b>Подписка:</b> {subscribed_groups}\n\n"
+                "<i>Powered by Kolo</i>"
             ),
-            Button(Const("📅 Моё расписание"), id="u_schedule", on_click=on_show_my_schedule),
-            SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
-            Button(Const("💬 Мои чаты"), id="u_chats", on_click=on_my_chats),
+            Row(
+                Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
+                Button(Const("📅 Завтра"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
+            ),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
+            Row(
+                SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
+                Button(Const("💬 Мои чаты"), id="u_chats", on_click=on_my_chats),
+            ),
             state=UserMenuSG.main,
             getter=get_user_menu_data,
         ),
@@ -195,7 +229,7 @@ def build_user_menu_dialog() -> Dialog:
                     on_state_changed=on_group_toggled,
                 ),
                 id="groups_scroll",
-                width=2,
+                width=3,
                 height=7,
                 hide_on_single_page=True,
             ),
