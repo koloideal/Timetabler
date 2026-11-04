@@ -629,22 +629,31 @@ async def _send_schedule_xlsx(
     call: CallbackQuery, for_date: date, sheets_service: SheetsService
 ) -> None:
     assert call.bot is not None and call.from_user is not None
+    status_msg = None
+    if isinstance(call.message, Message):
+        status_msg = await call.message.answer("⏳ Генерирую XLSX…")
     try:
         content = await sheets_service.export_xlsx(for_date)
     except SheetAccessError as e:
         await call.answer(str(e), show_alert=True)
-        return
-    if content is None:
-        await call.answer("Нет таблицы для этого дня", show_alert=True)
-        return
-    await call.bot.send_document(
-        call.from_user.id,
-        BufferedInputFile(
-            content, filename=f"schedule_{for_date.strftime('%d.%m.%Y')}.xlsx"
-        ),
-        caption=f"Таблица на {for_date.strftime('%d.%m.%Y')}",
-    )
-    await call.answer("✅ Отправлено")
+    else:
+        if content is None:
+            await call.answer("Нет таблицы для этого дня", show_alert=True)
+        else:
+            await call.bot.send_document(
+                call.from_user.id,
+                BufferedInputFile(
+                    content, filename=f"schedule_{for_date.strftime('%d.%m.%Y')}.xlsx"
+                ),
+                caption=f"Таблица на {for_date.strftime('%d.%m.%Y')}",
+            )
+            await call.answer("✅ Отправлено")
+    finally:
+        if status_msg is not None:
+            try:
+                await status_msg.delete()
+            except TelegramAPIError:
+                pass
 
 
 @inject

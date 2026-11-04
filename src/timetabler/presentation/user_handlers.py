@@ -45,12 +45,15 @@ def new_user_router() -> Router:
                 reply_markup=group_setup_markup(chat.chat_id),
             )
 
-    @router.message(Command("help"))
+    @router.message(Command("help"), F.chat.type.in_({"private", "group", "supergroup"}))
     async def help_handler(
         message: Message,
         config: FromDishka[Config],
         app_config: FromDishka[AppConfig],
     ) -> None:
+        if message.chat.type != "private":
+            await message.answer(app_config.group_help)
+            return
         assert message.from_user is not None
         if message.from_user.id == config.bot.creator_id:
             await message.answer(app_config.creator_help)
