@@ -1,10 +1,9 @@
-from datetime import date
 from typing import Protocol
 
-from timetabler.domain.schemas import BroadcastSummary, DaySchedule
+from timetabler.domain.schemas import Revision
 
 
 class CreatorNotifier(Protocol):
-    async def ask_broadcast_confirmation(self, for_date: date, day: DaySchedule) -> None: ...
+    async def ask_revision_approval(self, revision: Revision) -> None: ...
 
-    async def notify_schedule_updated(self, summary: BroadcastSummary) -> None: ...
+    async def notify_creator(self, text: str) -> None: ...

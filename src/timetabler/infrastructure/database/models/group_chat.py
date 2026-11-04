@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, String, func
+from sqlalchemy import BigInteger, Boolean, String, func
 from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,8 +14,13 @@ class GroupChat(Base):
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
-    groups: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list, server_default="{}")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="not_configured", server_default="not_configured")
+    study_groups: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list, server_default="{}")
+    pin_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    pinned_message_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list, server_default="{}")
+    added_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    configured_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     def __repr__(self) -> str:
-        return f"<GroupChat(chat_id={self.chat_id}, title='{self.title}', groups={self.groups})>"
+        return f"<GroupChat(chat_id={self.chat_id}, title='{self.title}', status='{self.status}')>"

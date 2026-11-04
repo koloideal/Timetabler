@@ -12,6 +12,7 @@ class SheetSource(Base):
     weekday: Mapped[int] = mapped_column(SmallInteger, primary_key=True, autoincrement=False)
     spreadsheet_id: Mapped[str | None] = mapped_column(String, nullable=True)
     last_header: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_hash: Mapped[str | None] = mapped_column(String, nullable=True)
 
     def __repr__(self) -> str:
         return f"<SheetSource(weekday={self.weekday}, spreadsheet_id='{self.spreadsheet_id}')>"

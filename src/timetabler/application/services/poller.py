@@ -1,21 +1,16 @@
 import asyncio
 import logging
 from datetime import date, timedelta
-from typing import Any
 
 from dishka import AsyncContainer
 
 from timetabler.application.exceptions import TimetableParseError
-from timetabler.application.ports import CreatorNotifier, ScheduleParser
 from timetabler.application.services.broadcast import BroadcastService
+from timetabler.application.services.detection import DetectionService
+from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
-from timetabler.application.services.sheets import SheetsService
-from timetabler.application.services.timetable import TimetableService
-from timetabler.application.services.user import UserService
-from timetabler.domain.schemas import BroadcastSummary, PendingBroadcast
 from timetabler.infrastructure.config.app import AppConfig
-from timetabler.infrastructure.config.models import Config
-from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
+from timetabler.infrastructure.sheets import SheetAccessError
 
 
 def next_study_day(today: date) -> date:
@@ -28,7 +23,7 @@ def next_study_day(today: date) -> date:
 class SheetsPoller:
     def __init__(self, container: AsyncContainer) -> None:
         self.container = container
-        self._errors: dict[int | str, str] = {}
+        self._errors: dict[object, str] = {}
         self._logger = logging.getLogger(__name__)
 
     async def run(self) -> None:
@@ -42,118 +37,39 @@ class SheetsPoller:
             await asyncio.sleep(delay)
 
     async def poll_once(self) -> int:
-        target_date = next_study_day(date.today())
-        weekday = target_date.weekday()
-
         async with self.container() as scope:
-            config: Config = await scope.get(Config)
-            client: GoogleSheetsClient = await scope.get(GoogleSheetsClient)
-            parser: ScheduleParser = await scope.get(ScheduleParser)
             settings_service: SettingsService = await scope.get(SettingsService)
-            sheets_service: SheetsService = await scope.get(SheetsService)
-            user_service: UserService = await scope.get(UserService)
-            timetable_service: TimetableService = await scope.get(TimetableService)
+            detection: DetectionService = await scope.get(DetectionService)
             broadcast_service: BroadcastService = await scope.get(BroadcastService)
-            notifier: CreatorNotifier = await scope.get(CreatorNotifier)
+            revision_service: RevisionService = await scope.get(RevisionService)
 
             settings = await settings_service.get_sheets_settings()
             poll_interval = settings.poll_interval_seconds
 
-            source = await sheets_service.get_source(weekday)
-            if not source or not source.spreadsheet_id:
-                return poll_interval
+            for revision in await revision_service.get_by_status("approved"):
+                await broadcast_service.publish_revision(revision)
 
-            pending = await settings_service.get_pending_broadcast()
+            today = date.today()
+            days = ([today] if today.weekday() < 6 else []) + [next_study_day(today)]
+            for for_date in days:
+                try:
+                    await detection.poll_day(for_date)
+                except (SheetAccessError, TimetableParseError) as e:
+                    self._log_error_once(for_date, f"{e}")
+                except Exception as e:
+                    self._logger.exception("Unexpected poll failure for %s", for_date)
+                    self._log_error_once(for_date, f"{type(e).__name__}: {e}")
+                else:
+                    self._clear_error(for_date)
 
-            try:
-                marker = await self._read_marker(client, source.spreadsheet_id, settings.date_cell)
-                if not marker or marker == source.last_header:
-                    self._clear_error(weekday)
-                    return poll_interval
-                if (
-                    settings.require_confirmation
-                    and pending is not None
-                    and pending.weekday == weekday
-                    and pending.marker == marker
-                ):
-                    return poll_interval
-
-                values = await client.read_values(source.spreadsheet_id, settings.schedule_range)
-                parsed = parser.parse(values, default_date=target_date)
-
-                await user_service.get_or_create(config.bot.creator_id, None)
-                result = await timetable_service.import_parsed(
-                    parsed, source.spreadsheet_id, config.bot.creator_id
-                )
-            except (SheetAccessError, TimetableParseError) as e:
-                self._log_error_once(weekday, f"{e}")
-                return poll_interval
-            except Exception as e:
-                self._logger.exception(
-                    "Unexpected sheets poll failure (weekday %s, sheet %s)",
-                    weekday, source.spreadsheet_id,
-                )
-                self._log_error_once(weekday, f"{type(e).__name__}: {e}")
-                return poll_interval
-            self._clear_error(weekday)
-
-            if settings.require_confirmation:
-                await settings_service.set_pending_broadcast(
-                    PendingBroadcast(weekday=weekday, marker=marker, dates=result.dates)
-                )
-                day = await broadcast_service.day_schedule(target_date)
-                await notifier.ask_broadcast_confirmation(target_date, day)
-                self._logger.info(
-                    "Sheet %s: waiting for creator confirmation (weekday %s)",
-                    source.spreadsheet_id, weekday,
-                )
-                return poll_interval
-
-            await settings_service.set_pending_broadcast(None)
-
-            total_sent = total_failed = chats_sent = chats_failed = 0
-            for for_date in result.dates:
-                report = await broadcast_service.broadcast(for_date)
-                total_sent += report.users_sent
-                total_failed += report.users_failed
-                chats_sent += report.chats_sent
-                chats_failed += report.chats_failed
-
-            await sheets_service.mark_header(weekday, marker)
-
-            dates = ", ".join(d.strftime("%d.%m.%Y") for d in result.dates)
-            await notifier.notify_schedule_updated(
-                BroadcastSummary(
-                    weekday=weekday,
-                    dates=result.dates,
-                    lessons=result.lessons,
-                    groups=result.groups,
-                    users_sent=total_sent,
-                    users_failed=total_failed,
-                    chats_sent=chats_sent,
-                    chats_failed=chats_failed,
-                )
-            )
-            self._logger.info(
-                "Sheet %s: broadcast %s for weekday %s",
-                source.spreadsheet_id, dates, weekday,
-            )
             return poll_interval
 
-    async def _read_marker(
-        self, client: GoogleSheetsClient, spreadsheet_id: str, date_cell: str
-    ) -> str:
-        values: list[list[Any]] = await client.read_values(spreadsheet_id, date_cell)
-        if not values or not values[0]:
-            return ""
-        return str(values[0][0])
-
-    def _log_error_once(self, key: int | str, message: str) -> None:
+    def _log_error_once(self, key: object, message: str) -> None:
         if self._errors.get(key) != message:
             self._errors[key] = message
             self._logger.error("Sheets poll failed (%s): %s", key, message)
 
-    def _clear_error(self, key: int | str) -> None:
+    def _clear_error(self, key: object) -> None:
         if key in self._errors:
             del self._errors[key]
             self._logger.info("Sheets poll recovered (%s)", key)

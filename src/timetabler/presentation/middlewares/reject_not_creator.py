@@ -1,4 +1,4 @@
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable, cast
 
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
@@ -10,10 +10,10 @@ from timetabler.infrastructure.config.models import Config
 class RejectNotCreatorMiddleware(BaseMiddleware):
     async def __call__(
         self,
-        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        handler: Callable[[TelegramObject, dict[str, object]], Awaitable[object]],
         event: TelegramObject,
-        data: dict[str, Any],
-    ) -> Any:
+        data: dict[str, object],
+    ) -> object | None:
         if isinstance(event, Message):
             if not event.text or event.text.strip() != "/admin":
                 return await handler(event, data)
@@ -24,7 +24,7 @@ class RejectNotCreatorMiddleware(BaseMiddleware):
         if user is None:
             return await handler(event, data)
 
-        container: AsyncContainer = data["dishka_container"]
+        container = cast(AsyncContainer, data["dishka_container"])
         config: Config = await container.get(Config)
 
         if user.id == config.bot.creator_id:
@@ -32,3 +32,6 @@ class RejectNotCreatorMiddleware(BaseMiddleware):
 
         if isinstance(event, CallbackQuery):
             await event.answer("⛔ Нет доступа", show_alert=True)
+        elif isinstance(event, Message):
+            await event.answer("⛔ Нет доступа")
+        return None

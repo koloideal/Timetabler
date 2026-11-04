@@ -1,5 +1,4 @@
 import logging
-from datetime import date
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
@@ -12,14 +11,13 @@ from aiogram.types import (
 )
 
 from timetabler.application.ports import CreatorNotifier
-from timetabler.domain.schemas import BroadcastSummary, DaySchedule, User
+from timetabler.domain.schemas import Revision, User
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.presentation.messages import (
-    broadcast_confirmation_markup,
     new_user_text,
-    preview,
-    schedule_updated_text,
+    revision_approval_markup,
+    revision_approval_text,
 )
 
 
@@ -70,16 +68,11 @@ class TelegramNotifier(CreatorNotifier):
     ) -> None:
         await self.send_rich_message(self.config.bot.creator_id, markdown, reply_markup)
 
-    async def ask_broadcast_confirmation(self, for_date: date, day: DaySchedule) -> None:
-        schedule_preview = preview(day, for_date, self.app_config)
-        markdown = schedule_preview.markdown if schedule_preview else "📅 Новое расписание"
+    async def ask_revision_approval(self, revision: Revision) -> None:
         await self.send_rich_to_creator(
-            f"{markdown}\n\n---\n\n**Подтвердить рассылку подписчикам?**",
-            reply_markup=broadcast_confirmation_markup(),
+            revision_approval_text(revision, self.app_config),
+            reply_markup=revision_approval_markup(revision.id),
         )
-
-    async def notify_schedule_updated(self, summary: BroadcastSummary) -> None:
-        await self.notify_creator(schedule_updated_text(summary, self.app_config))
 
     async def notify_new_user(self, user: User) -> None:
         await self.notify_creator(new_user_text(user))

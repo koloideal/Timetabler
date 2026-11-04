@@ -1,10 +1,11 @@
 from .base import Base as Base
 from .channel import Channel as Channel
+from .delivery import Delivery as Delivery
 from .group_chat import GroupChat as GroupChat
+from .revision import TimetableRevision as TimetableRevision
+from .revision import TimetableRevisionEntry as TimetableRevisionEntry
+from .sent_message import SentMessage as SentMessage
 from .setting import Setting as Setting
 from .sheet_source import SheetSource as SheetSource
 from .study_group import StudyGroup as StudyGroup
-from .timetable import Timetable as Timetable
-from .timetable import TimetableEntry as TimetableEntry
-from .timetable import TimetableGroup as TimetableGroup
 from .user import User as User

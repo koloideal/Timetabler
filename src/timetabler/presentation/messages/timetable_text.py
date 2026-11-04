@@ -6,13 +6,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from timetabler.domain.schemas import TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
 
-_MD_SPECIALS = ("\\", "|", "*", "_", "~", "[", "]", "(", ")")
-
-SUBGROUP_MODES = (("1", "Только 1 п/г"), ("2", "Только 2 п/г"), ("a", "Все"))
-
 
 def _md(text: str) -> str:
-    for char in _MD_SPECIALS:
+    for char in ("\\", "|", "*", "_", "~", "[", "]", "(", ")"):
         text = text.replace(char, f"\\{char}")
     return text
 
@@ -128,7 +124,7 @@ def subgroup_markup(
                     text=("✅ " if code == mode else "") + label,
                     callback_data=subgroup_callback(group_id, for_date, code),
                 )
-                for code, label in SUBGROUP_MODES
+                for code, label in (("1", "Только 1 п/г"), ("2", "Только 2 п/г"), ("a", "Все"))
             ]
         ]
     )

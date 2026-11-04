@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, cast
+from typing import cast
 
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery
@@ -17,12 +17,17 @@ from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 
 from timetabler.application.services.broadcast import BroadcastService
+from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.poller import next_study_day
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.presentation.messages import group_messages
 from timetabler.presentation.telegram import TelegramNotifier
+from timetabler.presentation.user_dialogs.group_setup import (
+    GroupSetupSG,
+    manageable_chats,
+)
 
 
 class UserMenuSG(StatesGroup):
@@ -35,8 +40,8 @@ async def get_user_menu_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     study_group_service: FromDishka[StudyGroupService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
     subscribed = set(user.groups) if user else set()
@@ -89,12 +94,34 @@ async def on_show_my_schedule(
 
 
 @inject
+async def on_my_chats(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    group_chat_service: FromDishka[GroupChatService],
+) -> None:
+    if call.bot is None:
+        return
+    chats = await manageable_chats(call.bot, group_chat_service, call.from_user.id)
+    if len(chats) == 1:
+        chat = chats[0]
+        state = (
+            GroupSetupSG.settings
+            if chat.study_groups
+            else GroupSetupSG.pick_groups
+        )
+        await manager.start(state, data={"chat_id": chat.chat_id})
+    else:
+        await manager.start(GroupSetupSG.chats_list)
+
+
+@inject
 async def get_user_groups_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     study_group_service: FromDishka[StudyGroupService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
     subscribed = set(user.groups) if user else set()
@@ -138,7 +165,8 @@ def build_user_menu_dialog() -> Dialog:
                 "Уведомления: {notifications}"
             ),
             Button(Const("📅 Моё расписание"), id="u_schedule", on_click=on_show_my_schedule),
-            SwitchTo(Const("📚 Мои группы"), id="u_groups", state=UserMenuSG.groups),
+            SwitchTo(Const("📚 Подписки"), id="u_groups", state=UserMenuSG.groups),
+            Button(Const("👥 Мои группы"), id="u_chats", on_click=on_my_chats),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
             state=UserMenuSG.main,
             getter=get_user_menu_data,

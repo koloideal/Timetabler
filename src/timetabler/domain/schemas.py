@@ -24,7 +24,12 @@ class Channel:
 class GroupChat:
     chat_id: int
     title: str | None
-    groups: list[str]
+    status: str
+    study_groups: list[int]
+    pin_enabled: bool
+    pinned_message_ids: list[int]
+    added_by_user_id: int | None
+    configured_by_user_id: int | None
     created_at: datetime
 
 
@@ -58,12 +63,45 @@ class ParsedTimetable:
 
 
 @dataclass
-class Timetable:
+class Revision:
     id: int
     for_date: date
-    filename: str | None
-    uploaded_by: int
-    created_at: datetime
+    weekday: int
+    header: str | None
+    content_hash: str | None
+    group_hashes: dict[int, str]
+    base_audiences: dict[int, str]
+    kind: str
+    changed_groups: list[int]
+    diff: dict[int, list[str]]
+    parent_revision_id: int | None
+    status: str
+    stable_polls: int
+    detected_at: datetime
+    settled_at: datetime | None
+    published_at: datetime | None
+
+
+@dataclass
+class SentMessage:
+    id: int
+    revision_id: int | None
+    for_date: date
+    chat_id: int
+    message_id: int
+    kind: str
+    groups: list[str]
+    sent_at: datetime
+
+
+@dataclass
+class Delivery:
+    id: int
+    revision_id: int
+    kind: str
+    chat_id: int
+    status: str
+    sent_at: datetime | None
 
 
 @dataclass
@@ -71,6 +109,7 @@ class SheetSource:
     weekday: int
     spreadsheet_id: str | None
     last_header: str | None
+    last_hash: str | None
 
 
 @dataclass
@@ -82,27 +121,8 @@ class DaySchedule:
 
 
 @dataclass
-class BroadcastSummary:
-    weekday: int
-    dates: list[date]
-    lessons: int
-    groups: int
-    users_sent: int
-    users_failed: int
-    chats_sent: int
-    chats_failed: int
-
-
-@dataclass
 class SheetsSettings:
     schedule_range: str
     date_cell: str
     poll_interval_seconds: int
     require_confirmation: bool
-
-
-@dataclass
-class PendingBroadcast:
-    weekday: int
-    marker: str
-    dates: list[date]

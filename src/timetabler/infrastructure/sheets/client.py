@@ -1,10 +1,9 @@
 import asyncio
 import logging
-from typing import Any
 
 from google.auth.exceptions import DefaultCredentialsError
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
+from googleapiclient.discovery import Resource, build
 from googleapiclient.errors import HttpError
 from httplib2 import HttpLib2Error
 
@@ -19,7 +18,7 @@ class GoogleSheetsClient:
     def __init__(self, config: SheetsClientConfig, credentials_path: str) -> None:
         self.config = config
         self.credentials_path = credentials_path
-        self._values: Any = None
+        self._values: Resource | None = None
         self.service_account_email: str | None = None
         self._logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class GoogleSheetsClient:
         self.service_account_email = credentials.service_account_email
         self._logger.info("Sheets client configured: %s", self.service_account_email)
 
-    async def read_values(self, spreadsheet_id: str, a1_range: str) -> list[list[Any]]:
+    async def read_values(self, spreadsheet_id: str, a1_range: str) -> list[list[object]]:
         self._ensure_configured()
 
         delay = self.config.retry_base_delay
@@ -55,6 +54,7 @@ class GoogleSheetsClient:
                 spreadsheet_id, a1_range, attempt + 1, self.config.max_attempts,
             )
             try:
+                assert self._values is not None
                 request = self._values.get(spreadsheetId=spreadsheet_id, range=a1_range)
                 response = await asyncio.to_thread(request.execute)
             except HttpError as e:
@@ -87,7 +87,7 @@ class GoogleSheetsClient:
                 )
                 raise
             else:
-                values: list[list[Any]] = response.get("values") or []
+                values: list[list[object]] = response.get("values") or []
                 self._logger.info(
                     "Sheets read ok: %s!%s -> %s rows", spreadsheet_id, a1_range, len(values)
                 )

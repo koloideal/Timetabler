@@ -28,12 +28,11 @@ class SheetsSettingsConfig:
     date_cell_key: str = "sheets.date_cell"
     poll_interval_key: str = "sheets.poll_interval_seconds"
     confirmation_key: str = "sheets.require_confirmation"
-    pending_broadcast_key: str = "sheets.pending_broadcast"
     schedule_range_label: str = "диапазон расписания"
     date_cell_label: str = "ячейка даты"
     poll_interval_label: str = "интервал опроса, сек"
     confirmation_label: str = "подтверждение рассылки"
-    default_schedule_range: str = "A1:I100"
+    default_schedule_range: str = "A1:I200"
     default_date_cell: str = "A1"
     default_poll_interval_seconds: int = 180
     min_poll_interval_seconds: int = 10
@@ -57,6 +56,26 @@ class SheetsSettingsConfig:
 
 
 @dataclass(frozen=True)
+class RevisionsConfig:
+    stable_polls: int = 2
+    max_settle_seconds: int = 1200
+    update_timezone: str = "Europe/Moscow"
+    send_delay_seconds: float = 0.05
+    chat_send_failed_text: str = (
+        "⚠️ Не смог отправить расписание в «{title}» — рассылка выключена. "
+        "Проверьте, что я состою в чате и могу писать, "
+        "затем включите её снова в «Мои группы»."
+    )
+    chat_pin_failed_text: str = (
+        "⚠️ Не смог закрепить расписание в «{title}» — закреп выключен. "
+        "Выдайте мне право «Закрепление сообщений» и включите его снова в «Мои группы»."
+    )
+    channel_send_failed_text: str = (
+        "⚠️ Не смог отправить расписание в канал <code>{chat_id}</code> — канал отключён."
+    )
+
+
+@dataclass(frozen=True)
 class AppConfig:
     required_columns: tuple[str, ...] = ("group", "position", "subject")
     date_formats: tuple[str, ...] = ("%d.%m.%Y", "%Y-%m-%d")
@@ -67,6 +86,7 @@ class AppConfig:
     grid: GridParserConfig = field(default_factory=GridParserConfig)
     sheets_client: SheetsClientConfig = field(default_factory=SheetsClientConfig)
     sheets_settings: SheetsSettingsConfig = field(default_factory=SheetsSettingsConfig)
+    revisions: RevisionsConfig = field(default_factory=RevisionsConfig)
     user_help: str = (
         "ℹ️ <b>КАК ПОЛЬЗОВАТЬСЯ</b>\n"
         "<pre>━━━━━━━━━━━━━━━━━━\n"

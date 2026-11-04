@@ -1,6 +1,5 @@
 import re
 from datetime import date, datetime, time
-from typing import Any
 
 from timetabler.application.exceptions import TimetableParseError
 from timetabler.domain.schemas import ParsedTimetable, TimetableEntry
@@ -12,7 +11,7 @@ class GridScheduleParser:
         self.config = config
         self._group_re = re.compile(config.grid.group_pattern)
 
-    def parse(self, values: list[list[Any]], default_date: date) -> ParsedTimetable:
+    def parse(self, values: list[list[object]], default_date: date) -> ParsedTimetable:
         parsed = ParsedTimetable()
         group_id: int | None = None
         grid = self.config.grid
@@ -41,7 +40,7 @@ class GridScheduleParser:
 
         return parsed
 
-    def _text(self, raw: Any) -> str | None:
+    def _text(self, raw: object) -> str | None:
         if raw is None:
             return None
         if isinstance(raw, float) and raw.is_integer():
@@ -49,7 +48,7 @@ class GridScheduleParser:
         text = str(raw).strip()
         return text if text not in self.config.grid.skipped_cell_values else None
 
-    def _position(self, raw: Any, row_no: int) -> int | None:
+    def _position(self, raw: object, row_no: int) -> int | None:
         text = self._text(raw)
         if text is None:
             return None
@@ -58,7 +57,7 @@ class GridScheduleParser:
         except ValueError:
             raise TimetableParseError(f"Строка {row_no}: номер пары «{text}» не число")
 
-    def _starts_at(self, raw: Any, row_no: int) -> time | None:
+    def _starts_at(self, raw: object, row_no: int) -> time | None:
         if isinstance(raw, datetime):
             return raw.time()
         if isinstance(raw, time):
@@ -75,7 +74,7 @@ class GridScheduleParser:
 
     def _entries(
         self,
-        row: list[Any],
+        row: list[object],
         row_no: int,
         group_id: int,
         subject: str,

@@ -1,7 +1,6 @@
 import logging
 import re
 from datetime import date
-from typing import Any
 
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramAPIError
@@ -72,8 +71,8 @@ async def get_admin_main_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     group_chat_service: FromDishka[GroupChatService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     users = await user_service.list_users()
     chats = await group_chat_service.list_chats()
     return {
@@ -87,8 +86,8 @@ async def get_users_list_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     config: FromDishka[Config],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     users = await user_service.list_users()
     users_data = []
     for user in users:
@@ -112,8 +111,8 @@ async def get_user_detail_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     config: FromDishka[Config],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     user_id = dialog_manager.dialog_data.get("selected_user_id")
     if not user_id:
         return {}
@@ -172,10 +171,14 @@ async def on_detail_back(call: CallbackQuery, button: Button, manager: DialogMan
 async def get_chats_list_data(
     dialog_manager: DialogManager,
     group_chat_service: FromDishka[GroupChatService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
+    icons = {"not_configured": "⚠️", "active": "✅", "disabled": "🔕"}
     chats = await group_chat_service.list_chats()
-    chats_data = [(c.title or str(c.chat_id), str(c.chat_id)) for c in chats]
+    chats_data = [
+        (f"{icons.get(c.status, '❔')} {c.title or c.chat_id}", str(c.chat_id))
+        for c in chats
+    ]
     return {"chats": chats_data, "total_chats": len(chats)}
 
 
@@ -193,8 +196,9 @@ async def on_chat_selected(
 async def get_chat_detail_data(
     dialog_manager: DialogManager,
     group_chat_service: FromDishka[GroupChatService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
+    labels = {"not_configured": "⚠️ не настроена", "active": "✅ включена", "disabled": "🔕 выключена"}
     chat_id = dialog_manager.dialog_data.get("selected_chat_id")
     if not chat_id:
         return {}
@@ -206,26 +210,25 @@ async def get_chat_detail_data(
     return {
         "chat_id": chat.chat_id,
         "title": chat.title or "—",
-        "groups": _format_groups(chat.groups),
+        "status": labels.get(chat.status, chat.status),
+        "groups": ", ".join(map(str, chat.study_groups)) or "—",
+        "pin": "📌 вкл" if chat.pin_enabled else "выкл",
         "added_at": chat.created_at.strftime("%d.%m.%Y %H:%M"),
     }
 
 
 
 
-_CHANNEL_STATUS_ICONS = {"pending": "⏳", "approved": "✅", "disabled": "🔕"}
-_CHANNEL_STATUS_LABELS = {"pending": "⏳ ожидает", "approved": "✅ включён", "disabled": "🔕 отключён"}
-
-
 @inject
 async def get_channels_list_data(
     dialog_manager: DialogManager,
     channel_service: FromDishka[ChannelService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
+    icons = {"pending": "⏳", "approved": "✅", "disabled": "🔕"}
     channels = await channel_service.list_channels()
     channels_data = [
-        (f"{_CHANNEL_STATUS_ICONS.get(c.status, '❔')} {c.title or c.chat_id}", str(c.chat_id))
+        (f"{icons.get(c.status, '❔')} {c.title or c.chat_id}", str(c.chat_id))
         for c in channels
     ]
     return {"channels": channels_data, "total_channels": len(channels)}
@@ -245,8 +248,9 @@ async def on_channel_selected(
 async def get_channel_detail_data(
     dialog_manager: DialogManager,
     channel_service: FromDishka[ChannelService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
+    labels = {"pending": "⏳ ожидает", "approved": "✅ включён", "disabled": "🔕 отключён"}
     chat_id = dialog_manager.dialog_data.get("selected_channel_id")
     channel = await channel_service.get_by_id(chat_id) if chat_id else None
     if not channel:
@@ -254,7 +258,7 @@ async def get_channel_detail_data(
     return {
         "chat_id": channel.chat_id,
         "title": channel.title or "—",
-        "status": _CHANNEL_STATUS_LABELS.get(channel.status, channel.status),
+        "status": labels.get(channel.status, channel.status),
         "added_at": channel.created_at.strftime("%d.%m.%Y %H:%M"),
         "is_pending": channel.status == "pending",
         "is_approved": channel.status == "approved",
@@ -359,8 +363,8 @@ async def on_channel_delete(
 async def get_groups_list_data(
     dialog_manager: DialogManager,
     study_group_service: FromDishka[StudyGroupService],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     groups = await study_group_service.list_groups()
     groups_alias = [(g.display_name, str(g.group_id)) for g in groups if g.alias]
     groups_plain = [(str(g.group_id), str(g.group_id)) for g in groups if not g.alias]
@@ -386,8 +390,8 @@ async def get_group_detail_data(
     dialog_manager: DialogManager,
     study_group_service: FromDishka[StudyGroupService],
     config: FromDishka[Config],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     group_id = dialog_manager.dialog_data.get("selected_group_id")
     if not group_id:
         return {}
@@ -466,8 +470,8 @@ async def get_sheets_list_data(
     dialog_manager: DialogManager,
     sheets_service: FromDishka[SheetsService],
     app_config: FromDishka[AppConfig],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     sources = {s.weekday: s for s in await sheets_service.list_sources()}
     sheets_data = []
     for weekday in range(6):
@@ -495,8 +499,8 @@ async def get_sheet_detail_data(
     dialog_manager: DialogManager,
     sheets_service: FromDishka[SheetsService],
     app_config: FromDishka[AppConfig],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     weekday = dialog_manager.dialog_data.get("selected_weekday")
     if weekday is None:
         return {}
@@ -583,8 +587,8 @@ async def get_schedule_view_data(
     broadcast_service: FromDishka[BroadcastService],
     study_group_service: FromDishka[StudyGroupService],
     app_config: FromDishka[AppConfig],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     target = next_study_day(date.today())
     day = await broadcast_service.day_schedule(target)
     preview = schedule_preview(day, target, app_config)
@@ -626,8 +630,8 @@ async def get_sheets_settings_data(
     dialog_manager: DialogManager,
     settings_service: FromDishka[SettingsService],
     app_config: FromDishka[AppConfig],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     settings = await settings_service.get_sheets_settings()
     cfg = app_config.sheets_settings
     values = {
@@ -667,8 +671,8 @@ async def on_setting_selected(
 async def get_setting_input_data(
     dialog_manager: DialogManager,
     app_config: FromDishka[AppConfig],
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     key = dialog_manager.dialog_data.get("setting_key") or ""
     return {"setting_label": dict(app_config.sheets_settings.fields).get(key, "?")}
 
@@ -803,8 +807,10 @@ def build_admin_panel_dialog() -> Dialog:
                 "<pre>━━━━━━━━━━━━━━━━━━\n"
                 "НАЗВАНИЕ  {title}\n"
                 "ID        {chat_id}\n"
-                "ДОБАВЛЕН  {added_at}\n"
+                "СТАТУС    {status}\n"
                 "ГРУППЫ    {groups}\n"
+                "ЗАКРЕП    {pin}\n"
+                "ДОБАВЛЕН  {added_at}\n"
                 "━━━━━━━━━━━━━━━━━━</pre>"
             ),
             SwitchTo(Const("⬅️ Назад"), id="back_to_chats", state=AdminPanelSG.chats_list),

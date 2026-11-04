@@ -1,49 +1,62 @@
+import asyncio
 import logging
-from dataclasses import dataclass
-from datetime import date
-from typing import Iterable
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
-from timetabler.application.ports import ScheduleSender
-from timetabler.domain.schemas import DaySchedule, TimetableEntry
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from timetabler.application.ports import CreatorNotifier, ScheduleSender
+from timetabler.domain.schemas import (
+    DaySchedule,
+    GroupChat,
+    Revision,
+    TimetableEntry,
+)
+from timetabler.infrastructure.config.app import RevisionsConfig
 from timetabler.infrastructure.database.dao import (
     ChannelsDAO,
+    DeliveriesDAO,
     GroupChatsDAO,
+    RevisionsDAO,
+    SentMessagesDAO,
     StudyGroupsDAO,
-    TimetablesDAO,
     UsersDAO,
 )
-
-
-@dataclass
-class BroadcastReport:
-    users_sent: int
-    users_failed: int
-    chats_sent: int
-    chats_failed: int
-    groups: int
 
 
 class BroadcastService:
     def __init__(
         self,
         sender: ScheduleSender,
+        session: AsyncSession,
+        session_maker: async_sessionmaker[AsyncSession],
         users_dao: UsersDAO,
         group_chats_dao: GroupChatsDAO,
         channels_dao: ChannelsDAO,
         study_groups_dao: StudyGroupsDAO,
-        timetables_dao: TimetablesDAO,
+        revisions_dao: RevisionsDAO,
+        sent_messages_dao: SentMessagesDAO,
+        deliveries_dao: DeliveriesDAO,
+        notifier: CreatorNotifier,
+        config: RevisionsConfig,
     ) -> None:
         self.sender = sender
+        self.session = session
+        self.session_maker = session_maker
         self.users_dao = users_dao
         self.group_chats_dao = group_chats_dao
         self.channels_dao = channels_dao
         self.study_groups_dao = study_groups_dao
-        self.timetables_dao = timetables_dao
+        self.revisions_dao = revisions_dao
+        self.sent_messages_dao = sent_messages_dao
+        self.deliveries_dao = deliveries_dao
+        self.notifier = notifier
+        self.config = config
         self._logger = logging.getLogger(__name__)
 
-    async def day_schedule(self, for_date: date) -> DaySchedule:
-        entries = await self.timetables_dao.get_entries(for_date)
-        base_audiences = await self.timetables_dao.get_base_audiences(for_date)
+    async def _build_day(
+        self, entries: list[TimetableEntry], base_audiences: dict[int, str]
+    ) -> DaySchedule:
         aliases = {
             g.group_id: g.alias for g in await self.study_groups_dao.get_all()
         }
@@ -67,41 +80,314 @@ class BroadcastService:
             split=split,
         )
 
-    def _group_ids(self, day: DaySchedule, groups: Iterable[str]) -> list[int]:
-        return [int(g) for g in groups if g.isdigit() and int(g) in day.by_group]
+    async def day_schedule(self, for_date: date) -> DaySchedule:
+        revision = await self.revisions_dao.get_published(for_date)
+        if revision is None:
+            return await self._build_day([], {})
+        return await self.revision_schedule(revision)
 
-    async def broadcast(self, for_date: date) -> BroadcastReport:
-        data = await self.day_schedule(for_date)
-        report = BroadcastReport(0, 0, 0, 0, len(data.by_group))
+    async def revision_schedule(self, revision: Revision) -> DaySchedule:
+        entries = await self.revisions_dao.get_entries(revision.id)
+        return await self._build_day(entries, revision.base_audiences)
 
-        for user in await self.users_dao.get_all():
-            if user.is_banned or not user.notifications_enabled:
-                continue
-            for group_id in self._group_ids(data, user.groups):
-                if await self.sender.send_group_schedule(
-                    user.user_id, for_date, data, group_id
-                ):
-                    report.users_sent += 1
-                else:
-                    report.users_failed += 1
+    async def publish_revision(self, revision: Revision) -> None:
+        async with self.session_maker() as session:
+            await self._with_session(session)._publish(revision)
 
-        for channel in await self.channels_dao.get_enabled():
-            if await self.sender.send_channel_schedule(channel.chat_id, for_date, data):
-                report.chats_sent += 1
-            else:
-                report.chats_failed += 1
-
-        for chat in await self.group_chats_dao.get_all():
-            for group_id in self._group_ids(data, chat.groups):
-                if await self.sender.send_group_schedule(
-                    chat.chat_id, for_date, data, group_id
-                ):
-                    report.chats_sent += 1
-                else:
-                    report.chats_failed += 1
-
-        self._logger.info(
-            "Broadcast %s: %s users, %s chats, %s groups",
-            for_date, report.users_sent, report.chats_sent, report.groups,
+    def _with_session(self, session: AsyncSession) -> "BroadcastService":
+        return BroadcastService(
+            self.sender, session, self.session_maker,
+            UsersDAO(session), GroupChatsDAO(session), ChannelsDAO(session),
+            StudyGroupsDAO(session), RevisionsDAO(session),
+            SentMessagesDAO(session), DeliveriesDAO(session),
+            self.notifier, self.config,
         )
-        return report
+
+    async def _publish(self, revision: Revision) -> None:
+        day = await self.revision_schedule(revision)
+        label = self._update_label()
+        changed = set(revision.changed_groups) or set(day.by_group)
+
+        recipients: list[tuple[str, int]] = []
+        recipients += [
+            ("channel", c.chat_id) for c in await self.channels_dao.get_enabled()
+        ]
+
+        chats = {
+            c.chat_id: c
+            for c in await self.group_chats_dao.get_active()
+            if {g for g in c.study_groups if g in changed and g in day.by_group}
+        }
+        recipients += [("chat", chat_id) for chat_id in chats]
+
+        changed_str = {str(g) for g in changed}
+        recipients += [
+            ("dm", u.user_id)
+            for u in await self.users_dao.get_all()
+            if not u.is_banned
+            and u.notifications_enabled
+            and changed_str & set(u.groups)
+        ]
+
+        await self.deliveries_dao.ensure(revision.id, recipients)
+        await self.session.commit()
+
+        pending = await self.deliveries_dao.get_pending(revision.id)
+        pending.sort(key=lambda d: d.kind != "channel")
+        for delivery in pending:
+            try:
+                if delivery.kind == "channel":
+                    ok = await self._publish_channel(
+                        delivery.chat_id, revision, day, label
+                    )
+                elif delivery.kind == "chat":
+                    chat = chats.get(delivery.chat_id) or await self.group_chats_dao.get_by_id(
+                        delivery.chat_id
+                    )
+                    ok = chat is not None and await self._publish_group_chat(
+                        chat, revision, day, label
+                    )
+                else:
+                    ok = await self._publish_dm(delivery.chat_id, revision, day, changed, label)
+            except Exception:
+                self._logger.exception(
+                    "Delivery %s (%s to %s) crashed",
+                    delivery.id, delivery.kind, delivery.chat_id,
+                )
+                ok = False
+            await self.deliveries_dao.set_status(
+                delivery.id, "sent" if ok else "failed"
+            )
+            await self.session.commit()
+            await asyncio.sleep(self.config.send_delay_seconds)
+
+        await self.revisions_dao.update_fields(
+            revision.id,
+            status="published",
+            published_at=datetime.now(ZoneInfo(self.config.update_timezone)),
+        )
+        await self.session.commit()
+        self._logger.info("Revision %s for %s published", revision.id, revision.for_date)
+
+    def _update_label(self) -> str:
+        now = datetime.now(ZoneInfo(self.config.update_timezone))
+        return f"Обновлено в {now.strftime('%H:%M')}"
+
+    async def _publish_channel(
+        self, chat_id: int, revision: Revision, day: DaySchedule, label: str
+    ) -> bool:
+        if await self.sent_messages_dao.get_for_revision(revision.id, chat_id):
+            return True
+
+        prev = [
+            m for m in await self.sent_messages_dao.get_for_day(chat_id, revision.for_date)
+            if m.revision_id != revision.id
+        ]
+        note = label if prev else None
+        message_id = None
+
+        if prev:
+            last = prev[-1]
+            if await self.sender.edit_channel_schedule(
+                chat_id, last.message_id, revision.for_date, day, note
+            ):
+                message_id = last.message_id
+                await self.sent_messages_dao.set_revision(last.id, revision.id)
+            else:
+                await self.sender.delete_message(chat_id, last.message_id)
+            for stale in prev[:-1]:
+                await self.sender.delete_message(chat_id, stale.message_id)
+            for stale in prev[:-1] + ([] if message_id else [last]):
+                await self.sent_messages_dao.remove(stale.id)
+
+        if message_id is None:
+            message_id = await self.sender.send_channel_schedule(
+                chat_id, revision.for_date, day, note
+            )
+            if message_id is not None:
+                await self.sent_messages_dao.add(
+                    revision.id, revision.for_date, chat_id, message_id,
+                    "channel", [str(g) for g in day.by_group],
+                )
+            else:
+                await self.channels_dao.set_status(chat_id, "disabled")
+                await self.notifier.notify_creator(
+                    self.config.channel_send_failed_text.format(chat_id=chat_id)
+                )
+                return False
+        return True
+
+    async def _publish_group_chat(
+        self, chat: GroupChat, revision: Revision, day: DaySchedule, label: str
+    ) -> bool:
+        changed = set(revision.changed_groups) or set(day.by_group)
+        needed = [
+            g for g in chat.study_groups if g in changed and g in day.by_group
+        ]
+        already = {
+            int(g)
+            for m in await self.sent_messages_dao.get_for_revision(revision.id, chat.chat_id)
+            for g in m.groups
+        }
+        to_send = [g for g in needed if g not in already]
+        if not to_send:
+            return True
+        prev = [
+            m for m in await self.sent_messages_dao.get_for_day(chat.chat_id, revision.for_date)
+            if m.revision_id != revision.id
+        ]
+        note = label if prev else None
+        result = await self._deliver_group_chat(
+            chat, revision.for_date, day, revision, note, to_send
+        )
+        return result == "sent"
+
+    async def _publish_dm(
+        self,
+        user_id: int,
+        revision: Revision,
+        day: DaySchedule,
+        changed: set[int],
+        label: str,
+    ) -> bool:
+        user = await self.users_dao.get_by_id(user_id)
+        if user is None:
+            return False
+
+        needed = [
+            g for g in sorted(changed) if str(g) in user.groups and g in day.by_group
+        ]
+        already = {
+            int(g)
+            for m in await self.sent_messages_dao.get_for_revision(revision.id, user_id)
+            for g in m.groups
+        }
+        prev = [
+            m for m in await self.sent_messages_dao.get_for_day(user_id, revision.for_date)
+            if m.revision_id != revision.id
+        ]
+        note = label if prev else None
+
+        ok = True
+        sent_now = []
+        for group_id in needed:
+            if group_id in already:
+                continue
+            message_id = await self.sender.send_group_schedule(
+                user_id, revision.for_date, day, group_id, note
+            )
+            if message_id is None:
+                ok = False
+                continue
+            sent_now.append(message_id)
+            await self.sent_messages_dao.add(
+                revision.id, revision.for_date, user_id, message_id,
+                "dm", [str(group_id)],
+            )
+
+        sent_groups = {str(g) for g in needed}
+        for old in prev:
+            if not sent_groups & set(old.groups):
+                continue
+            await self.sender.delete_message(user_id, old.message_id)
+            await self.sent_messages_dao.remove(old.id)
+        return ok
+
+    async def deliver_to_chat(
+        self, chat: GroupChat, for_date: date, day: DaySchedule | None = None
+    ) -> str:
+        day = day or await self.day_schedule(for_date)
+        groups = [g for g in chat.study_groups if g in day.by_group]
+        if not groups:
+            return "empty"
+        revision = await self.revisions_dao.get_published(for_date)
+        return await self._deliver_group_chat(chat, for_date, day, revision, None, groups)
+
+    async def _deliver_group_chat(
+        self,
+        chat: GroupChat,
+        for_date: date,
+        day: DaySchedule,
+        revision: Revision | None,
+        note: str | None,
+        group_ids: list[int],
+    ) -> str:
+        message_ids = []
+        for group_id in group_ids:
+            delivery = await self.sender.send_chat_schedule(
+                chat.chat_id, for_date, day, group_id, note
+            )
+            if delivery.migrate_to is not None:
+                moved = await self.group_chats_dao.update_chat_id(
+                    chat.chat_id, delivery.migrate_to
+                )
+                if moved is None:
+                    await self._disable_chat(chat)
+                    return "failed"
+                chat = moved
+                delivery = await self.sender.send_chat_schedule(
+                    chat.chat_id, for_date, day, group_id, note
+                )
+            if delivery.failed or delivery.migrate_to is not None:
+                await self._disable_chat(chat)
+                return "failed"
+            if delivery.message_id is None:
+                continue
+            message_ids.append(delivery.message_id)
+            await self.sent_messages_dao.add(
+                revision.id if revision else None,
+                for_date, chat.chat_id, delivery.message_id,
+                "chat", [str(group_id)],
+            )
+
+        if not message_ids:
+            return "empty"
+
+        if revision is not None:
+            sent_groups = {str(g) for g in group_ids}
+            for old in await self.sent_messages_dao.get_for_day(chat.chat_id, for_date):
+                if old.revision_id == revision.id or old.message_id in message_ids:
+                    continue
+                if not sent_groups & set(old.groups):
+                    continue
+                await self.sender.delete_message(chat.chat_id, old.message_id)
+                await self.sent_messages_dao.remove(old.id)
+
+        await self._apply_pins(chat, message_ids)
+        return "sent"
+
+    async def _apply_pins(self, chat: GroupChat, message_ids: list[int]) -> None:
+        if not chat.pin_enabled:
+            return
+        pinned = []
+        for message_id in message_ids:
+            if not await self.sender.pin_chat_message(chat.chat_id, message_id):
+                await self._disable_pin(chat)
+                return
+            pinned.append(message_id)
+        for old_id in chat.pinned_message_ids:
+            if old_id not in pinned:
+                await self.sender.unpin_chat_message(chat.chat_id, old_id)
+        await self.group_chats_dao.set_pinned_messages(chat.chat_id, pinned)
+
+    async def _disable_pin(self, chat: GroupChat) -> None:
+        await self.group_chats_dao.set_pin_enabled(chat.chat_id, False)
+        notify_id = chat.configured_by_user_id or chat.added_by_user_id
+        if notify_id:
+            await self.sender.send_text(
+                notify_id,
+                self.config.chat_pin_failed_text.format(
+                    title=chat.title or chat.chat_id
+                ),
+            )
+
+    async def _disable_chat(self, chat: GroupChat) -> None:
+        await self.group_chats_dao.set_status(chat.chat_id, "disabled")
+        notify_id = chat.configured_by_user_id or chat.added_by_user_id
+        if notify_id:
+            await self.sender.send_text(
+                notify_id,
+                self.config.chat_send_failed_text.format(
+                    title=chat.title or chat.chat_id
+                ),
+            )

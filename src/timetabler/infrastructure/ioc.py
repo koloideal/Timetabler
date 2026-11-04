@@ -7,14 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from timetabler.application.ports import CreatorNotifier, ScheduleParser, ScheduleSender
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.channel import ChannelService
+from timetabler.application.services.detection import DetectionService
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
-from timetabler.application.services.timetable import TimetableService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import (
     AppConfig,
+    RevisionsConfig,
     SheetsClientConfig,
     SheetsSettingsConfig,
 )
@@ -22,11 +24,13 @@ from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.database.config import new_session_maker
 from timetabler.infrastructure.database.dao import (
     ChannelsDAO,
+    DeliveriesDAO,
     GroupChatsDAO,
+    RevisionsDAO,
+    SentMessagesDAO,
     SettingsDAO,
     SheetSourcesDAO,
     StudyGroupsDAO,
-    TimetablesDAO,
     UsersDAO,
 )
 from timetabler.infrastructure.parsing.grid_parser import GridScheduleParser
@@ -66,8 +70,16 @@ class DatabaseProvider(Provider):
         return StudyGroupsDAO(session)
 
     @provide
-    def get_timetables_dao(self, session: AsyncSession) -> TimetablesDAO:
-        return TimetablesDAO(session)
+    def get_revisions_dao(self, session: AsyncSession) -> RevisionsDAO:
+        return RevisionsDAO(session)
+
+    @provide
+    def get_sent_messages_dao(self, session: AsyncSession) -> SentMessagesDAO:
+        return SentMessagesDAO(session)
+
+    @provide
+    def get_deliveries_dao(self, session: AsyncSession) -> DeliveriesDAO:
+        return DeliveriesDAO(session)
 
     @provide
     def get_sheet_sources_dao(self, session: AsyncSession) -> SheetSourcesDAO:
@@ -110,24 +122,51 @@ class ServicesProvider(Provider):
         return SettingsService(settings_dao, settings_config)
 
     @provide
+    def get_revision_service(
+        self,
+        revisions_dao: RevisionsDAO,
+        study_groups_dao: StudyGroupsDAO,
+    ) -> RevisionService:
+        return RevisionService(revisions_dao, study_groups_dao)
+
+    @provide
     def get_broadcast_service(
         self,
         sender: ScheduleSender,
+        session: AsyncSession,
+        session_maker: async_sessionmaker[AsyncSession],
         users_dao: UsersDAO,
         group_chats_dao: GroupChatsDAO,
         channels_dao: ChannelsDAO,
         study_groups_dao: StudyGroupsDAO,
-        timetables_dao: TimetablesDAO,
+        revisions_dao: RevisionsDAO,
+        sent_messages_dao: SentMessagesDAO,
+        deliveries_dao: DeliveriesDAO,
+        notifier: CreatorNotifier,
+        revisions_config: RevisionsConfig,
     ) -> BroadcastService:
-        return BroadcastService(sender, users_dao, group_chats_dao, channels_dao, study_groups_dao, timetables_dao)
+        return BroadcastService(
+            sender, session, session_maker, users_dao, group_chats_dao, channels_dao,
+            study_groups_dao, revisions_dao, sent_messages_dao, deliveries_dao,
+            notifier, revisions_config,
+        )
 
     @provide
-    def get_timetable_service(
+    def get_detection_service(
         self,
-        timetable_entries_dao: TimetablesDAO,
-        study_group_service: StudyGroupService,
-    ) -> TimetableService:
-        return TimetableService(timetable_entries_dao, study_group_service)
+        sheets_client: GoogleSheetsClient,
+        parser: ScheduleParser,
+        settings_service: SettingsService,
+        sheets_service: SheetsService,
+        revision_service: RevisionService,
+        broadcast_service: BroadcastService,
+        notifier: CreatorNotifier,
+        revisions_config: RevisionsConfig,
+    ) -> DetectionService:
+        return DetectionService(
+            sheets_client, parser, settings_service, sheets_service,
+            revision_service, broadcast_service, notifier, revisions_config,
+        )
 
 
 class SheetsProvider(Provider):
@@ -184,3 +223,7 @@ class AppConfigProvider(Provider):
     @provide(scope=Scope.APP)
     def get_sheets_settings_config(self, app_config: AppConfig) -> SheetsSettingsConfig:
         return app_config.sheets_settings
+
+    @provide(scope=Scope.APP)
+    def get_revisions_config(self, app_config: AppConfig) -> RevisionsConfig:
+        return app_config.revisions

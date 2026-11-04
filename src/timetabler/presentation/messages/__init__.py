@@ -6,10 +6,11 @@ from .day_schedule import (
     preview as preview,
 )
 from .notifications import (
-    broadcast_confirmation_markup as broadcast_confirmation_markup,
     channel_approval_markup as channel_approval_markup,
+    group_setup_markup as group_setup_markup,
     new_user_text as new_user_text,
-    schedule_updated_text as schedule_updated_text,
+    revision_approval_markup as revision_approval_markup,
+    revision_approval_text as revision_approval_text,
 )
 from .timetable_text import (
     subgroup_markup as subgroup_markup,

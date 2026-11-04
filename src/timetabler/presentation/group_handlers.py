@@ -3,14 +3,16 @@ import logging
 from aiogram import F, Router
 from aiogram.enums import ChatMemberStatus
 from aiogram.enums.chat_type import ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import ChatMemberUpdated, Message
 from dishka import FromDishka
 
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.models import Config
-from timetabler.presentation.messages import channel_approval_markup
+from timetabler.presentation.messages import channel_approval_markup, group_setup_markup
 from timetabler.presentation.telegram import TelegramNotifier
 
 
@@ -24,7 +26,7 @@ def new_group_router() -> Router:
         await message.answer(
             "👋 <b>TIMETABLER</b>\n━━━━━━━━━━━━━━━━━━\n"
             "Буду присылать расписание в этот чат.\n\n"
-            "<i>Настройка групп появится позже.</i>"
+            "<i>Админ группы настраивает расписание в личке со мной — «Мои группы».</i>"
         )
 
     @router.my_chat_member()
@@ -32,6 +34,7 @@ def new_group_router() -> Router:
         event: ChatMemberUpdated,
         group_chat_service: FromDishka[GroupChatService],
         channel_service: FromDishka[ChannelService],
+        user_service: FromDishka[UserService],
         notifier: FromDishka[TelegramNotifier],
         config: FromDishka[Config],
     ) -> None:
@@ -62,10 +65,38 @@ def new_group_router() -> Router:
             return
 
         if status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR):
-            await group_chat_service.register(event.chat.id, event.chat.title)
+            added_by = event.from_user.id if event.from_user else None
+            chat = await group_chat_service.register(event.chat.id, event.chat.title, added_by)
             logger.info("Bot added to chat %s (%s)", event.chat.id, event.chat.title)
+
+            if chat is not None and chat.status == "not_configured" and event.bot is not None:
+                title = event.chat.title or str(event.chat.id)
+                invited = False
+                if (
+                    event.from_user is not None
+                    and await user_service.get_by_id(event.from_user.id) is not None
+                ):
+                    try:
+                        await event.bot.send_message(
+                            event.from_user.id,
+                            f"👋 Вы добавили меня в «{title}». Настроить расписание сейчас?",
+                            reply_markup=group_setup_markup(event.chat.id),
+                        )
+                        invited = True
+                    except TelegramAPIError:
+                        pass
+                if not invited:
+                    me = await event.bot.get_me()
+                    try:
+                        await event.bot.send_message(
+                            event.chat.id,
+                            f"👋 Админ группы, откройте @{me.username} и нажмите "
+                            "«Мои группы», чтобы настроить расписание.",
+                        )
+                    except TelegramAPIError:
+                        pass
         elif status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED):
-            await group_chat_service.unregister(event.chat.id)
+            await group_chat_service.mark_removed(event.chat.id)
             logger.info("Bot removed from chat %s", event.chat.id)
 
     return router

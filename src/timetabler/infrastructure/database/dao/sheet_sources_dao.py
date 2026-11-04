@@ -28,10 +28,10 @@ class SheetSourcesDAO:
     async def set_spreadsheet(self, weekday: int, spreadsheet_id: str | None) -> None:
         stmt = (
             insert(OrmSheetSource)
-            .values(weekday=weekday, spreadsheet_id=spreadsheet_id, last_header=None)
+            .values(weekday=weekday, spreadsheet_id=spreadsheet_id, last_header=None, last_hash=None)
             .on_conflict_do_update(
                 index_elements=["weekday"],
-                set_={"spreadsheet_id": spreadsheet_id, "last_header": None},
+                set_={"spreadsheet_id": spreadsheet_id, "last_header": None, "last_hash": None},
             )
         )
         await self.session.execute(stmt)
@@ -46,10 +46,20 @@ class SheetSourcesDAO:
         await self.session.execute(stmt)
         await self.session.flush()
 
+    async def set_last_hash(self, weekday: int, last_hash: str) -> None:
+        stmt = (
+            update(OrmSheetSource)
+            .where(OrmSheetSource.weekday == weekday)
+            .values(last_hash=last_hash)
+        )
+        await self.session.execute(stmt)
+        await self.session.flush()
+
     @staticmethod
     def _map_to_domain(orm_source: OrmSheetSource) -> SheetSource:
         return SheetSource(
             weekday=orm_source.weekday,
             spreadsheet_id=orm_source.spreadsheet_id,
             last_header=orm_source.last_header,
+            last_hash=orm_source.last_hash,
         )

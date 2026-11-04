@@ -1,4 +1,4 @@
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable, cast
 
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Update
@@ -10,10 +10,10 @@ from timetabler.application.services.user import UserService
 class CheckBanMiddleware(BaseMiddleware):
     async def __call__(
         self,
-        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        handler: Callable[[TelegramObject, dict[str, object]], Awaitable[object]],
         event: TelegramObject,
-        data: dict[str, Any],
-    ) -> Any:
+        data: dict[str, object],
+    ) -> object | None:
         update = event
 
         if not update or not isinstance(update, Update):
@@ -29,7 +29,7 @@ class CheckBanMiddleware(BaseMiddleware):
         if not user_id:
             return await handler(event, data)
 
-        container: AsyncContainer = data["dishka_container"]
+        container = cast(AsyncContainer, data["dishka_container"])
         user_service: UserService = await container.get(UserService)
 
         if await user_service.is_banned(user_id):
@@ -40,6 +40,6 @@ class CheckBanMiddleware(BaseMiddleware):
             elif update.callback_query:
                 await update.callback_query.answer(message_text, show_alert=True)
 
-            return
+            return None
 
         return await handler(event, data)

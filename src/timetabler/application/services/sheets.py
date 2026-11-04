@@ -17,3 +17,6 @@ class SheetsService:
 
     async def mark_header(self, weekday: int, last_header: str) -> None:
         await self.sheet_sources_dao.set_last_header(weekday, last_header)
+
+    async def set_last_hash(self, weekday: int, last_hash: str) -> None:
+        await self.sheet_sources_dao.set_last_hash(weekday, last_hash)

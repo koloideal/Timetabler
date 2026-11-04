@@ -34,7 +34,10 @@ async def main() -> None:
     from timetabler.presentation.error_handlers import new_error_router
     from timetabler.presentation.group_handlers import new_group_router
     from timetabler.presentation.telegram import TelegramNotifier
-    from timetabler.presentation.user_dialogs import build_user_menu_dialog
+    from timetabler.presentation.user_dialogs import (
+        build_group_setup_dialog,
+        build_user_menu_dialog,
+    )
     from timetabler.presentation.user_handlers import new_user_router
 
     config: Config = load_config("secret_data/config.toml")
@@ -69,6 +72,7 @@ async def main() -> None:
         new_group_router(),
         admin_panel_dialog,
         build_user_menu_dialog(),
+        build_group_setup_dialog(),
     )
 
     admin_router.message.middleware(RejectNotCreatorMiddleware())
