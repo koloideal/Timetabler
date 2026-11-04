@@ -27,7 +27,7 @@ def new_admin_router() -> Router:
         revision_id = int((call.data or "").rsplit(":", 1)[-1])
         revision = await revision_service.get_by_id(revision_id)
         if revision is None or revision.status != "pending_approval":
-            await call.answer("Уже обработано", show_alert=True)
+            await call.answer("⚠️ Уже обработано", show_alert=True)
             return
 
         await revision_service.set_status(revision.id, "approved")
@@ -45,7 +45,7 @@ def new_admin_router() -> Router:
         revision_id = int((call.data or "").rsplit(":", 1)[-1])
         revision = await revision_service.get_by_id(revision_id)
         if revision is None or revision.status != "pending_approval":
-            await call.answer("Уже обработано", show_alert=True)
+            await call.answer("⚠️ Уже обработано", show_alert=True)
             return
 
         await revision_service.set_status(revision.id, "rejected")

@@ -31,7 +31,7 @@ class RejectNotCreatorMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):
-            await event.answer("⛔ Нет доступа", show_alert=True)
+            await event.answer("❌ Нет доступа", show_alert=True)
         elif isinstance(event, Message):
-            await event.answer("⛔ Нет доступа")
+            await event.answer("❌ Нет доступа")
         return None

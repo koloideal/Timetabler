@@ -91,8 +91,8 @@ async def get_users_list_data(
     users = await user_service.list_users()
     users_data = []
     for user in users:
-        badge = "👑" if user.user_id == config.bot.creator_id else "🚫" if user.is_banned else ""
-        users_data.append((f"{badge}{_user_label(user.user_id, user.username)}".strip(), str(user.user_id)))
+        badge = "👑 " if user.user_id == config.bot.creator_id else "🔴 " if user.is_banned else ""
+        users_data.append((f"{badge}{_user_label(user.user_id, user.username)}", str(user.user_id)))
     return {"users": users_data, "total_users": len(users)}
 
 
@@ -129,11 +129,11 @@ async def get_user_detail_data(
 
     return {
         "user_id": user.user_id,
-        "username": _user_label(user.user_id, user.username),
+        "username": f"@{user.username}" if user.username else "—",
         "registered_at": user.created_at.strftime("%d.%m.%Y %H:%M"),
         "groups": _format_groups(user.groups),
-        "ban_status": "🚫 заблокирован" if user.is_banned else "✅ активен",
-        "ban_button_text": "✅ Разбанить" if user.is_banned else "🚫 Забанить",
+        "ban_status": "🔴 Заблокирован" if user.is_banned else "🟢 Активен",
+        "ban_button_text": "🟢 Разблокировать" if user.is_banned else "🔴 Заблокировать",
         "can_ban": can_ban,
     }
 
@@ -153,12 +153,15 @@ async def on_ban_toggle(
         return
 
     if target.user_id == config.bot.creator_id or target.user_id == call.from_user.id:
-        await call.answer("❌ Нельзя забанить этого пользователя", show_alert=True)
+        await call.answer("❌ Нельзя заблокировать этого пользователя", show_alert=True)
         return
 
     updated = await user_service.set_banned(target.user_id, not target.is_banned)
     if updated:
-        await call.answer("✅ Разбанен" if not updated.is_banned else "🚫 Забанен", show_alert=True)
+        await call.answer(
+            "🟢 Пользователь разблокирован" if not updated.is_banned else "🔴 Пользователь заблокирован",
+            show_alert=True,
+        )
     else:
         await call.answer("❌ Не удалось обновить", show_alert=True)
 
@@ -173,7 +176,7 @@ async def get_chats_list_data(
     group_chat_service: FromDishka[GroupChatService],
     **kwargs: object,
 ) -> dict[str, object]:
-    icons = {"not_configured": "⚠️", "active": "✅", "disabled": "🔕"}
+    icons = {"not_configured": "⚠️", "active": "🟢", "disabled": "🔴"}
     chats = await group_chat_service.list_chats()
     chats_data = [
         (f"{icons.get(c.status, '❔')} {c.title or c.chat_id}", str(c.chat_id))
@@ -198,7 +201,7 @@ async def get_chat_detail_data(
     group_chat_service: FromDishka[GroupChatService],
     **kwargs: object,
 ) -> dict[str, object]:
-    labels = {"not_configured": "⚠️ не настроена", "active": "✅ включена", "disabled": "🔕 выключена"}
+    labels = {"not_configured": "⚠️ Не настроена", "active": "🟢 Включена", "disabled": "🔴 Выключена"}
     chat_id = dialog_manager.dialog_data.get("selected_chat_id")
     if not chat_id:
         return {}
@@ -212,7 +215,7 @@ async def get_chat_detail_data(
         "title": chat.title or "—",
         "status": labels.get(chat.status, chat.status),
         "groups": ", ".join(map(str, chat.study_groups)) or "—",
-        "pin": "📌 вкл" if chat.pin_enabled else "выкл",
+        "pin": "🟢 вкл" if chat.pin_enabled else "🔴 выкл",
         "added_at": chat.created_at.strftime("%d.%m.%Y %H:%M"),
     }
 
@@ -225,7 +228,7 @@ async def get_channels_list_data(
     channel_service: FromDishka[ChannelService],
     **kwargs: object,
 ) -> dict[str, object]:
-    icons = {"pending": "⏳", "approved": "✅", "disabled": "🔕"}
+    icons = {"pending": "⏳", "approved": "🟢", "disabled": "🔴"}
     channels = await channel_service.list_channels()
     channels_data = [
         (f"{icons.get(c.status, '❔')} {c.title or c.chat_id}", str(c.chat_id))
@@ -250,7 +253,7 @@ async def get_channel_detail_data(
     channel_service: FromDishka[ChannelService],
     **kwargs: object,
 ) -> dict[str, object]:
-    labels = {"pending": "⏳ ожидает", "approved": "✅ включён", "disabled": "🔕 отключён"}
+    labels = {"pending": "⏳ Ожидает одобрения", "approved": "🟢 Включён", "disabled": "🔴 Отключён"}
     chat_id = dialog_manager.dialog_data.get("selected_channel_id")
     channel = await channel_service.get_by_id(chat_id) if chat_id else None
     if not channel:
@@ -281,7 +284,7 @@ async def on_channel_approve_btn(
         await call.bot.send_message(chat_id, "✅ Бот подключён — сюда будет приходить расписание.")
     except TelegramAPIError:
         pass
-    await call.answer("✅ Одобрен")
+    await call.answer("✅ Канал одобрен")
     await manager.update({})
 
 
@@ -296,7 +299,7 @@ async def on_channel_enable(
     if chat_id is None:
         return
     await channel_service.approve(chat_id)
-    await call.answer("🔔 Канал включён")
+    await call.answer("🟢 Канал включён")
     await manager.update({})
 
 
@@ -311,7 +314,7 @@ async def on_channel_disable(
     if chat_id is None:
         return
     await channel_service.disable(chat_id)
-    await call.answer("🔕 Канал отключён")
+    await call.answer("🔴 Канал отключён")
     await manager.update({})
 
 
@@ -331,12 +334,12 @@ async def on_channel_schedule(
         day = await broadcast_service.day_schedule(target)
         sent = await schedule_sender.send_channel_schedule(chat_id, target, day)
     except TelegramAPIError as e:
-        await call.answer(f"Не смог отправить: {e.message}", show_alert=True)
+        await call.answer(f"❌ Не смог отправить: {e.message}", show_alert=True)
         return
     if not sent:
-        await call.answer("Нет расписания", show_alert=True)
+        await call.answer("❌ Нет расписания", show_alert=True)
         return
-    await call.answer("📅 Отправлено")
+    await call.answer("✅ Расписание отправлено")
 
 
 @inject
@@ -355,7 +358,7 @@ async def on_channel_delete(
         except TelegramAPIError:
             pass
     await channel_service.remove(chat_id)
-    await call.answer("🗑 Удалён, я вышел из канала")
+    await call.answer("🗑 Канал удалён, я вышел из него")
     await manager.switch_to(AdminPanelSG.channels_list)
 
 
@@ -366,7 +369,7 @@ async def get_groups_list_data(
     **kwargs: object,
 ) -> dict[str, object]:
     groups = await study_group_service.list_groups()
-    groups_alias = [(str(g.group_id), str(g.group_id)) for g in groups if g.alias]
+    groups_alias = [(f"{g.group_id} — {g.alias}", str(g.group_id)) for g in groups if g.alias]
     groups_plain = [(str(g.group_id), str(g.group_id)) for g in groups if not g.alias]
     return {
         "groups_alias": groups_alias,
@@ -390,6 +393,7 @@ async def get_group_detail_data(
     dialog_manager: DialogManager,
     study_group_service: FromDishka[StudyGroupService],
     config: FromDishka[Config],
+    app_config: FromDishka[AppConfig],
     **kwargs: object,
 ) -> dict[str, object]:
     group_id = dialog_manager.dialog_data.get("selected_group_id")
@@ -404,6 +408,7 @@ async def get_group_detail_data(
         "group_id": group.group_id,
         "alias": group.alias or "—",
         "created_at": group.created_at.strftime("%d.%m.%Y %H:%M"),
+        "max_alias": app_config.max_alias_length,
         "is_creator": _is_creator(dialog_manager, config),
     }
 
@@ -423,11 +428,13 @@ async def on_edit_group_alias_input(
 
     alias = (message.text or "").strip()
     if len(alias) > app_config.max_alias_length:
-        await message.answer(f"❌ Алиас слишком длинный (макс. {app_config.max_alias_length} символа)")
+        await message.answer(
+            f"❌ Алиас слишком длинный (максимум {app_config.max_alias_length} символов)"
+        )
         return
 
     await study_group_service.set_alias(group_id, alias or None)
-    await message.answer(f"✅ Алиас для {group_id} сохранён")
+    await message.answer("✅ Алиас сохранён")
     await manager.switch_to(AdminPanelSG.group_detail)
 
 
@@ -444,7 +451,7 @@ async def on_group_alias_clear(
         return
 
     await study_group_service.set_alias(group_id, None)
-    await call.answer("🗑 Алиас убран", show_alert=True)
+    await call.answer("🗑 Алиас удалён", show_alert=True)
     await manager.switch_to(AdminPanelSG.group_detail)
 
 
@@ -478,7 +485,7 @@ async def get_sheets_list_data(
         source = sources.get(weekday)
         spreadsheet_id = source.spreadsheet_id if source else None
         sheets_data.append((
-            f"{app_config.weekdays_short[weekday]} — {spreadsheet_id or 'не задана'}",
+            f"{app_config.weekdays_short[weekday]} — {spreadsheet_id or '—'}",
             str(weekday),
         ))
     return {"sheets": sheets_data}
@@ -552,8 +559,8 @@ async def on_sheet_id_input(
 
     if not re.fullmatch(app_config.sheets_settings.spreadsheet_id_pattern, spreadsheet_id):
         await message.answer(
-            "❌ Не похоже на ID таблицы.\n"
-            "Пришлите ID или ссылку вида .../d/&lt;ID&gt;/edit"
+            "❌ Не похоже на ID таблицы\n\n"
+            "<i>Пришлите ID или ссылку вида docs.google.com/spreadsheets/d/&lt;ID&gt;/edit</i>"
         )
         return
 
@@ -564,7 +571,7 @@ async def on_sheet_id_input(
         text = f"❌ Таблица недоступна: {e}"
         if sheets_client.service_account_email:
             text += (
-                f"\n\nРасшарьте её на сервисный аккаунт:\n"
+                f"\n\n💡 Расшарьте её на сервисный аккаунт:\n"
                 f"<code>{sheets_client.service_account_email}</code>"
             )
         await message.answer(text)
@@ -577,7 +584,7 @@ async def on_sheet_id_input(
         return
 
     await sheets_service.set_spreadsheet(weekday, spreadsheet_id)
-    await message.answer("✅ ID сохранён, таблица доступна сервисному аккаунту")
+    await message.answer("✅ Таблица привязана")
     await manager.switch_to(AdminPanelSG.sheets_list)
 
 
@@ -599,7 +606,7 @@ async def get_schedule_view_data(
         "groups": preview.groups if preview else 0,
         "lessons": preview.lessons if preview else 0,
         "has_schedule": preview is not None,
-        "schedule_groups": [("📚 Все группы", "all")]
+        "schedule_groups": [("👥 Все группы", "all")]
         + [(str(g.group_id), str(g.group_id)) for g in groups],
     }
 
@@ -619,7 +626,7 @@ async def on_schedule_group_selected(
     day = await broadcast_service.day_schedule(target)
     preview = schedule_preview(day, target, app_config, group_id)
     if preview is None:
-        await call.answer("Нет расписания", show_alert=True)
+        await call.answer("❌ Нет расписания", show_alert=True)
         return
     await notifier.send_rich_to_creator(preview.markdown)
     await call.answer()
@@ -631,21 +638,21 @@ async def _send_schedule_xlsx(
     assert call.bot is not None and call.from_user is not None
     status_msg = None
     if isinstance(call.message, Message):
-        status_msg = await call.message.answer("⏳ Генерирую XLSX…")
+        status_msg = await call.message.answer("⏳ Генерирую XLSX...")
     try:
         content = await sheets_service.export_xlsx(for_date)
     except SheetAccessError as e:
-        await call.answer(str(e), show_alert=True)
+        await call.answer(f"❌ {e}", show_alert=True)
     else:
         if content is None:
-            await call.answer("Нет таблицы для этого дня", show_alert=True)
+            await call.answer("❌ Нет таблицы для этого дня", show_alert=True)
         else:
             await call.bot.send_document(
                 call.from_user.id,
                 BufferedInputFile(
                     content, filename=f"schedule_{for_date.strftime('%d.%m.%Y')}.xlsx"
                 ),
-                caption=f"Таблица на {for_date.strftime('%d.%m.%Y')}",
+                caption=f"📤 <b>Экспорт расписания:</b> {for_date.strftime('%d.%m.%Y')}",
             )
             await call.answer("✅ Отправлено")
     finally:
@@ -710,7 +717,7 @@ async def on_setting_selected(
         enabled = not settings.require_confirmation
         await settings_service.set(cfg.confirmation_key, "1" if enabled else "0")
         await call.answer(
-            "🔔 Подтверждение вкл" if enabled else "🔕 Подтверждение выкл",
+            "🟢 Подтверждение включено" if enabled else "🔴 Подтверждение выключено",
             show_alert=True,
         )
         return
@@ -725,7 +732,8 @@ async def get_setting_input_data(
     **kwargs: object,
 ) -> dict[str, object]:
     key = dialog_manager.dialog_data.get("setting_key") or ""
-    return {"setting_label": dict(app_config.sheets_settings.fields).get(key, "?")}
+    label = dict(app_config.sheets_settings.fields).get(key, "?")
+    return {"setting_label": label[:1].upper() + label[1:]}
 
 
 @inject
@@ -746,20 +754,20 @@ async def on_setting_input(
 
     if key == cfg.schedule_range_key:
         if not re.fullmatch(cfg.a1_range_pattern, text):
-            await message.answer("❌ Диапазон вида A1:I100, без имени листа")
+            await message.answer("❌ Диапазон должен быть вида A1:I100, без имени листа")
             return
         await settings_service.set(key, text.upper())
         await message.answer("✅ Диапазон сохранён")
     elif key == cfg.date_cell_key:
         if not re.fullmatch(cfg.a1_cell_pattern, text):
-            await message.answer("❌ Ячейка вида A1")
+            await message.answer("❌ Ячейка должна быть вида A1")
             return
         await settings_service.set(key, text.upper())
         await message.answer("✅ Ячейка сохранена")
     elif key == cfg.poll_interval_key:
         if not text.isdigit() or int(text) < cfg.min_poll_interval_seconds:
             await message.answer(
-                f"❌ Интервал — целое число секунд (мин. {cfg.min_poll_interval_seconds})"
+                f"❌ Интервал должен быть целым числом секунд (минимум {cfg.min_poll_interval_seconds})"
             )
             return
         await settings_service.set(key, text)
@@ -772,29 +780,23 @@ def build_admin_panel_dialog() -> Dialog:
     return Dialog(
         Window(
             Format(
-                "🛠 <b>АДМИН-ПАНЕЛЬ</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "ЮЗЕРОВ    {total_users}\n"
-                "ЧАТОВ     {total_chats}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>\n"
+                "🔧 <b>Админ-панель</b>\n\n"
+                "👥 <b>Пользователей:</b> {total_users}\n"
+                "💬 <b>Чатов:</b> {total_chats}\n\n"
                 "Выберите раздел:"
             ),
-            SwitchTo(Const("👤 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
-            Row(
-                SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
-                SwitchTo(Const("📚 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
-            ),
+            SwitchTo(Const("👥 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
+            SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
+            SwitchTo(Const("🎓 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
             SwitchTo(Const("📅 Расписание"), id="sec_schedule", state=AdminPanelSG.schedule_view),
-            Row(
-                SwitchTo(Const("🏫 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
-                SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
-            ),
+            SwitchTo(Const("💬 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
+            SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
             SwitchTo(Const("⚙️ Настройки"), id="sec_settings", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.main,
             getter=get_admin_main_data,
         ),
         Window(
-            Format("👤 <b>ПОЛЬЗОВАТЕЛИ</b> · {total_users}\n━━━━━━━━━━━━━━━━━━"),
+            Format("<b>👥 Пользователи</b>\n\nВсего: {total_users}"),
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
@@ -805,23 +807,21 @@ def build_admin_panel_dialog() -> Dialog:
                 ),
                 id="users_scroll",
                 width=1,
-                height=7,
+                height=5,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_main_users", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_main_users", state=AdminPanelSG.main),
             state=AdminPanelSG.users_list,
             getter=get_users_list_data,
         ),
         Window(
             Format(
-                "👤 <b>ПОЛЬЗОВАТЕЛЬ</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "ID        {user_id}\n"
-                "USERNAME  {username}\n"
-                "REG       {registered_at}\n"
-                "ГРУППЫ    {groups}\n"
-                "СТАТУС    {ban_status}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>"
+                "<b>👤 Пользователь</b>\n\n"
+                "<b>ID:</b> {user_id}\n"
+                "<b>Username:</b> {username}\n"
+                "<b>Регистрация:</b> {registered_at}\n"
+                "<b>Группы:</b> {groups}\n"
+                "<b>Статус:</b> {ban_status}"
             ),
             Button(
                 Format("{ban_button_text}"),
@@ -829,12 +829,12 @@ def build_admin_panel_dialog() -> Dialog:
                 on_click=on_ban_toggle,
                 when="can_ban",
             ),
-            Button(Const("⬅️ Назад"), id="back_to_list", on_click=on_detail_back),
+            Button(Const("◀️ Назад"), id="back_to_list", on_click=on_detail_back),
             state=AdminPanelSG.user_detail,
             getter=get_user_detail_data,
         ),
         Window(
-            Format("🏫 <b>ЧАТЫ</b> · {total_chats}\n━━━━━━━━━━━━━━━━━━"),
+            Format("<b>💬 Чаты</b>\n\nВсего: {total_chats}"),
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
@@ -848,28 +848,26 @@ def build_admin_panel_dialog() -> Dialog:
                 height=7,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_main_chats", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_main_chats", state=AdminPanelSG.main),
             state=AdminPanelSG.chats_list,
             getter=get_chats_list_data,
         ),
         Window(
             Format(
-                "🏫 <b>ЧАТ</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "НАЗВАНИЕ  {title}\n"
-                "ID        {chat_id}\n"
-                "СТАТУС    {status}\n"
-                "ГРУППЫ    {groups}\n"
-                "ЗАКРЕП    {pin}\n"
-                "ДОБАВЛЕН  {added_at}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>"
+                "<b>💬 Чат</b>\n\n"
+                "<b>Название:</b> {title}\n"
+                "<b>ID:</b> {chat_id}\n"
+                "<b>Статус:</b> {status}\n"
+                "<b>Группы:</b> {groups}\n"
+                "<b>Закреп:</b> {pin}\n"
+                "<b>Добавлен:</b> {added_at}"
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_to_chats", state=AdminPanelSG.chats_list),
+            SwitchTo(Const("◀️ Назад"), id="back_to_chats", state=AdminPanelSG.chats_list),
             state=AdminPanelSG.chat_detail,
             getter=get_chat_detail_data,
         ),
         Window(
-            Format("📢 <b>КАНАЛЫ</b> · {total_channels}\n━━━━━━━━━━━━━━━━━━"),
+            Format("<b>📢 Каналы</b>\n\nВсего: {total_channels}"),
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
@@ -883,33 +881,29 @@ def build_admin_panel_dialog() -> Dialog:
                 height=7,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_main_channels", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_main_channels", state=AdminPanelSG.main),
             state=AdminPanelSG.channels_list,
             getter=get_channels_list_data,
         ),
         Window(
             Format(
-                "📢 <b>КАНАЛ</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "НАЗВАНИЕ  {title}\n"
-                "ID        {chat_id}\n"
-                "СТАТУС    {status}\n"
-                "ДОБАВЛЕН  {added_at}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>"
+                "<b>📢 Канал</b>\n\n"
+                "<b>Название:</b> {title}\n"
+                "<b>ID:</b> {chat_id}\n"
+                "<b>Статус:</b> {status}\n"
+                "<b>Добавлен:</b> {added_at}"
             ),
             Button(Const("✅ Одобрить"), id="ch_approve", on_click=on_channel_approve_btn, when="is_pending"),
-            Row(
-                Button(Const("🔕 Отключить"), id="ch_disable", on_click=on_channel_disable, when="is_approved"),
-                Button(Const("🔔 Включить"), id="ch_enable", on_click=on_channel_enable, when="is_disabled"),
-            ),
+            Button(Const("🔴 Отключить"), id="ch_disable", on_click=on_channel_disable, when="is_approved"),
+            Button(Const("🟢 Включить"), id="ch_enable", on_click=on_channel_enable, when="is_disabled"),
             Button(Const("📅 Отправить расписание"), id="ch_schedule", on_click=on_channel_schedule, when="is_approved"),
             Button(Const("🗑 Удалить"), id="ch_delete", on_click=on_channel_delete),
-            SwitchTo(Const("⬅️ Назад"), id="back_to_channels", state=AdminPanelSG.channels_list),
+            SwitchTo(Const("◀️ Назад"), id="back_to_channels", state=AdminPanelSG.channels_list),
             state=AdminPanelSG.channel_detail,
             getter=get_channel_detail_data,
         ),
         Window(
-            Format("📚 <b>ГРУППЫ</b> · {total_groups}\n━━━━━━━━━━━━━━━━━━"),
+            Format("<b>🎓 Группы</b>\n\nВсего: {total_groups}"),
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
@@ -932,52 +926,55 @@ def build_admin_panel_dialog() -> Dialog:
                     on_click=on_group_selected,
                 ),
                 id="groups_plain_scroll",
-                width=3,
+                width=2,
                 height=6,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_main_groups", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_main_groups", state=AdminPanelSG.main),
             state=AdminPanelSG.groups_list,
             getter=get_groups_list_data,
         ),
         Window(
             Format(
-                "📚 <b>ГРУППА</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "ID        {group_id}\n"
-                "АЛИАС     {alias}\n"
-                "СОЗДАНА   {created_at}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>"
+                "<b>🎓 Группа {group_id}</b>\n\n"
+                "<b>Алиас:</b> {alias}\n"
+                "<b>Создана:</b> {created_at}"
             ),
             SwitchTo(Const("✏️ Изменить алиас"), id="edit_alias", state=AdminPanelSG.group_alias_edit, when="is_creator"),
             SwitchTo(Const("🗑 Удалить группу"), id="del_group", state=AdminPanelSG.group_del_confirm, when="is_creator"),
-            SwitchTo(Const("⬅️ Назад"), id="back_groups", state=AdminPanelSG.groups_list),
+            SwitchTo(Const("◀️ Назад"), id="back_groups", state=AdminPanelSG.groups_list),
             state=AdminPanelSG.group_detail,
             getter=get_group_detail_data,
         ),
         Window(
-            Format("🗑 <b>УДАЛИТЬ ГРУППУ?</b>\n<pre>ID      {group_id}\nАЛИАС   {alias}</pre>"),
-            Button(Const("✅ Удалить"), id="confirm_del_group", on_click=on_group_delete_confirm),
-            SwitchTo(Const("⬅️ Назад"), id="back_group_detail", state=AdminPanelSG.group_detail),
+            Format(
+                "<b>🗑 Удаление группы</b>\n\n"
+                "Удалить группу {group_id}?\n\n"
+                "<blockquote><b>ID:</b> {group_id}\n<b>Алиас:</b> {alias}</blockquote>\n\n"
+                "⚠️ <i>Действие необратимо</i>"
+            ),
+            Row(
+                Button(Const("✅ Да, удалить"), id="confirm_del_group", on_click=on_group_delete_confirm),
+                SwitchTo(Const("❌ Отмена"), id="back_group_detail", state=AdminPanelSG.group_detail),
+            ),
             state=AdminPanelSG.group_del_confirm,
             getter=get_group_detail_data,
         ),
         Window(
             Format(
-                "✏️ <b>АЛИАС · ГРУППА {group_id}</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "ТЕКУЩИЙ   {alias}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>\n"
-                "Пришлите новый алиас:"
+                "<b>🎓 Группа {group_id}</b>\n\n"
+                "<b>Текущий алиас:</b> {alias}\n\n"
+                "💬 <b>Введите новый алиас</b>:\n"
+                "<i>(максимум {max_alias} символов)</i>"
             ),
             MessageInput(on_edit_group_alias_input, content_types=["text"]),
-            Button(Const("🗑 Убрать алиас"), id="clear_alias", on_click=on_group_alias_clear),
-            SwitchTo(Const("⬅️ Назад"), id="back_group_detail_alias", state=AdminPanelSG.group_detail),
+            Button(Const("🗑 Без алиаса"), id="clear_alias", on_click=on_group_alias_clear),
+            SwitchTo(Const("◀️ Назад"), id="back_group_detail_alias", state=AdminPanelSG.group_detail),
             state=AdminPanelSG.group_alias_edit,
             getter=get_group_detail_data,
         ),
         Window(
-            Const("📊 <b>ТАБЛИЦЫ</b>\n━━━━━━━━━━━━━━━━━━\nВыберите день недели:"),
+            Const("<b>📊 Таблицы</b>\n\nВыберите день недели:"),
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
@@ -988,39 +985,38 @@ def build_admin_panel_dialog() -> Dialog:
                 ),
                 id="sheets_scroll",
                 width=1,
-                height=6,
+                height=7,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_main_sheets", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_main_sheets", state=AdminPanelSG.main),
             state=AdminPanelSG.sheets_list,
             getter=get_sheets_list_data,
         ),
         Window(
             Format(
-                "📊 <b>ТАБЛИЦА · {weekday_name}</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "ID        {spreadsheet_id}\n"
-                "ШАПКА     {last_header}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>"
+                "<b>📊 Таблица · {weekday_name}</b>\n\n"
+                "<b>ID:</b> {spreadsheet_id}\n"
+                "<b>Шапка:</b> {last_header}"
             ),
             SwitchTo(Const("✏️ Задать ID"), id="set_sheet_id", state=AdminPanelSG.sheet_set_input),
             Button(Const("🗑 Очистить ID"), id="clear_sheet_id", on_click=on_sheet_clear, when="has_id"),
-            SwitchTo(Const("⬅️ Назад"), id="back_sheets", state=AdminPanelSG.sheets_list),
+            SwitchTo(Const("◀️ Назад"), id="back_sheets", state=AdminPanelSG.sheets_list),
             state=AdminPanelSG.sheet_detail,
             getter=get_sheet_detail_data,
         ),
         Window(
-            Const(
-                "✏️ <b>ID ТАБЛИЦЫ</b>\n━━━━━━━━━━━━━━━━━━\n"
-                "Пришлите ID таблицы или ссылку вида\n"
-                "docs.google.com/spreadsheets/d/&lt;ID&gt;/edit"
+            Format(
+                "<b>📊 Таблица · {weekday_name}</b>\n\n"
+                "💬 <b>Введите ID таблицы или ссылку</b>:\n"
+                "<i>docs.google.com/spreadsheets/d/&lt;ID&gt;/edit</i>"
             ),
             MessageInput(on_sheet_id_input, content_types=["text"]),
-            SwitchTo(Const("⬅️ Назад"), id="back_sheet_detail", state=AdminPanelSG.sheet_detail),
+            SwitchTo(Const("◀️ Назад"), id="back_sheet_detail", state=AdminPanelSG.sheet_detail),
             state=AdminPanelSG.sheet_set_input,
+            getter=get_sheet_detail_data,
         ),
         Window(
-            Const("⚙️ <b>НАСТРОЙКИ SHEETS</b>\n━━━━━━━━━━━━━━━━━━\nВыберите параметр:"),
+            Const("<b>⚙️ Настройки</b>\n\nВыберите параметр:"),
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
@@ -1031,31 +1027,29 @@ def build_admin_panel_dialog() -> Dialog:
                 ),
                 id="settings_scroll",
                 width=1,
-                height=5,
+                height=7,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_sheets_settings", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_sheets_settings", state=AdminPanelSG.main),
             state=AdminPanelSG.sheets_settings,
             getter=get_sheets_settings_data,
         ),
         Window(
             Format(
-                "✏️ <b>{setting_label}</b>\n━━━━━━━━━━━━━━━━━━\n"
-                "Пришлите новое значение:"
+                "<b>⚙️ {setting_label}</b>\n\n"
+                "💬 <b>Введите новое значение</b>:"
             ),
             MessageInput(on_setting_input, content_types=["text"]),
-            SwitchTo(Const("⬅️ Назад"), id="back_setting", state=AdminPanelSG.sheets_settings),
+            SwitchTo(Const("◀️ Назад"), id="back_setting", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.setting_input,
             getter=get_setting_input_data,
         ),
         Window(
             Format(
-                "📅 <b>АКТУАЛЬНОЕ РАСПИСАНИЕ</b>\n"
-                "<pre>━━━━━━━━━━━━━━━━━━\n"
-                "ДЕНЬ     {schedule_date}\n"
-                "ГРУПП    {groups}\n"
-                "ПАР      {lessons}\n"
-                "━━━━━━━━━━━━━━━━━━</pre>\n"
+                "<b>📅 Расписание</b>\n\n"
+                "<b>День:</b> {schedule_date}\n"
+                "<b>Групп:</b> {groups}\n"
+                "<b>Пар:</b> {lessons}\n\n"
                 "Выберите группу для просмотра:"
             ),
             ScrollingGroup(
@@ -1068,15 +1062,15 @@ def build_admin_panel_dialog() -> Dialog:
                 ),
                 id="schedule_groups_scroll",
                 width=2,
-                height=5,
+                height=7,
                 hide_on_single_page=True,
                 when="has_schedule",
             ),
             Row(
-                Button(Const("📥 XLSX сегодня"), id="xlsx_today", on_click=on_xlsx_today),
-                Button(Const("📥 XLSX завтра"), id="xlsx_tomorrow", on_click=on_xlsx_tomorrow),
+                Button(Const("📤 XLSX сегодня"), id="xlsx_today", on_click=on_xlsx_today),
+                Button(Const("📤 XLSX завтра"), id="xlsx_tomorrow", on_click=on_xlsx_tomorrow),
             ),
-            SwitchTo(Const("⬅️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
+            SwitchTo(Const("◀️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
             state=AdminPanelSG.schedule_view,
             getter=get_schedule_view_data,
         ),

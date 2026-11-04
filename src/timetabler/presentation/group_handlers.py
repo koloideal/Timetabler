@@ -39,12 +39,19 @@ def new_group_router() -> Router:
                 if event.from_user and event.from_user.id == config.bot.creator_id:
                     await channel_service.approve(event.chat.id)
                     await notifier.notify_creator(
-                        f"📢 Канал «{title}» одобрен автоматически и включён в рассылку."
+                        f"✅ Канал «{title}» одобрен автоматически и включён в рассылку."
                     )
                 else:
-                    byline = f" от @{event.from_user.username}" if event.from_user and event.from_user.username else ""
+                    byline = (
+                        f"\n<b>Добавил:</b> @{event.from_user.username}"
+                        if event.from_user and event.from_user.username
+                        else ""
+                    )
                     await notifier.notify_creator(
-                        f"📢 Меня добавили в канал «{title}» (<code>{event.chat.id}</code>){byline}.\nРазрешить?",
+                        f"<b>📢 Новый канал</b>\n\n"
+                        f"<b>Название:</b> {title}\n"
+                        f"<b>ID:</b> <code>{event.chat.id}</code>{byline}\n\n"
+                        "Одобрить?",
                         reply_markup=channel_approval_markup(event.chat.id),
                     )
             elif status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED):
@@ -70,7 +77,7 @@ def new_group_router() -> Router:
                     try:
                         await event.bot.send_message(
                             event.from_user.id,
-                            f"👋 Вы добавили меня в «{title}». Настроить расписание сейчас?",
+                            f"👋 Вы добавили меня в «{title}».\n\nНастроить расписание сейчас?",
                             reply_markup=group_setup_markup(event.chat.id),
                         )
                         invited = True
@@ -82,7 +89,7 @@ def new_group_router() -> Router:
                         await event.bot.send_message(
                             event.chat.id,
                             f"👋 Админ группы, откройте @{me.username} и нажмите "
-                            "«Мои группы», чтобы настроить расписание.",
+                            "«💬 Мои чаты», чтобы настроить расписание.",
                         )
                     except TelegramAPIError:
                         pass

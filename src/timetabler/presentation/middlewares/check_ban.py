@@ -33,7 +33,7 @@ class CheckBanMiddleware(BaseMiddleware):
         user_service: UserService = await container.get(UserService)
 
         if await user_service.is_banned(user_id):
-            message_text = "🚫 Вы заблокированы."
+            message_text = "🔒 Вы заблокированы"
 
             if update.message:
                 await update.message.answer(message_text)

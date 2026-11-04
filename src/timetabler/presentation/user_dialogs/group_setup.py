@@ -131,7 +131,7 @@ async def get_settings_data(
     group_chat_service: FromDishka[GroupChatService],
     **kwargs: object,
 ) -> dict[str, object]:
-    labels = {"not_configured": "⚠️ не настроена", "active": "✅ включена", "disabled": "🔕 выключена"}
+    labels = {"not_configured": "⚠️ Не настроена", "active": "🟢 Включена", "disabled": "🔴 Выключена"}
     chat = await _current_chat(dialog_manager, group_chat_service)
     if chat is None:
         return {
@@ -142,9 +142,9 @@ async def get_settings_data(
         "title": chat.title or str(chat.chat_id),
         "groups": ", ".join(str(g) for g in chat.study_groups) or "—",
         "status": labels.get(chat.status, chat.status),
-        "pin": "📌 включён" if chat.pin_enabled else "выключен",
+        "pin": "🟢 вкл" if chat.pin_enabled else "🔴 выкл",
         "pin_toggle": "📌 Выключить закреп" if chat.pin_enabled else "📌 Включить закреп",
-        "active_toggle": "🔕 Отключить рассылку" if chat.status == "active" else "✅ Включить рассылку",
+        "active_toggle": "🔴 Отключить рассылку" if chat.status == "active" else "🟢 Включить рассылку",
         "configured": bool(chat.study_groups),
     }
 
@@ -169,13 +169,13 @@ async def on_chat_selected(
 ) -> None:
     chat = await group_chat_service.get_by_id(int(item_id))
     if chat is None:
-        await callback.answer("Чат не найден", show_alert=True)
+        await callback.answer("❌ Чат не найден", show_alert=True)
         return
     bot = callback.bot
     if bot is None or callback.from_user is None or not await is_chat_admin(
         bot, chat.chat_id, callback.from_user.id
     ):
-        await callback.answer("Нужны права администратора", show_alert=True)
+        await callback.answer("❌ Нужны права администратора чата", show_alert=True)
         return
     dialog_manager.dialog_data["chat_id"] = chat.chat_id
     await dialog_manager.switch_to(
@@ -194,16 +194,16 @@ async def on_groups_save(
     chat = await _current_chat(dialog_manager, group_chat_service)
     bot = callback.bot
     if chat is None or bot is None or callback.from_user is None:
-        await callback.answer("Чат не найден", show_alert=True)
+        await callback.answer("❌ Чат не найден", show_alert=True)
         return
     if not await is_chat_admin(bot, chat.chat_id, callback.from_user.id):
-        await callback.answer("Нужны права администратора", show_alert=True)
+        await callback.answer("❌ Нужны права администратора чата", show_alert=True)
         return
 
     ms = cast(ManagedMultiselect[int], dialog_manager.find("chat_groups_ms"))
     group_ids = sorted(int(g) for g in ms.get_checked())
     if not group_ids:
-        await callback.answer("Выберите хотя бы одну группу", show_alert=True)
+        await callback.answer("❌ Выберите хотя бы одну группу", show_alert=True)
         return
 
     was_configured = bool(chat.study_groups)
@@ -211,13 +211,13 @@ async def on_groups_save(
         chat.chat_id, group_ids, callback.from_user.id
     )
     if updated is None:
-        await callback.answer("Чат не найден", show_alert=True)
+        await callback.answer("❌ Чат не найден", show_alert=True)
         return
 
     if not was_configured:
         groups_text = ", ".join(str(g) for g in group_ids)
         try:
-            await bot.send_message(chat.chat_id, f"Расписание подключено: {groups_text}")
+            await bot.send_message(chat.chat_id, f"✅ Расписание подключено: {groups_text}")
         except Exception:
             logging.getLogger(__name__).warning(
                 "Cannot notify chat %s about setup", chat.chat_id
@@ -238,10 +238,10 @@ async def on_toggle_pin(
     chat = await _current_chat(dialog_manager, group_chat_service)
     bot = callback.bot
     if chat is None or bot is None or callback.from_user is None:
-        await callback.answer("Чат не найден", show_alert=True)
+        await callback.answer("❌ Чат не найден", show_alert=True)
         return
     if not await is_chat_admin(bot, chat.chat_id, callback.from_user.id):
-        await callback.answer("Нужны права администратора", show_alert=True)
+        await callback.answer("❌ Нужны права администратора чата", show_alert=True)
         return
 
     if chat.pin_enabled:
@@ -280,16 +280,16 @@ async def on_send_test(
     chat = await _current_chat(dialog_manager, group_chat_service)
     bot = callback.bot
     if chat is None or bot is None or callback.from_user is None:
-        await callback.answer("Чат не найден", show_alert=True)
+        await callback.answer("❌ Чат не найден", show_alert=True)
         return
     if not await is_chat_admin(bot, chat.chat_id, callback.from_user.id):
-        await callback.answer("Нужны права администратора", show_alert=True)
+        await callback.answer("❌ Нужны права администратора чата", show_alert=True)
         return
     result = await broadcast_service.deliver_to_chat(chat, next_study_day(date.today()))
     text = {
         "sent": "✅ Отправлено",
-        "empty": "Нет расписания для выбранных групп",
-        "failed": "⚠️ Не удалось отправить",
+        "empty": "❌ Нет расписания для выбранных групп",
+        "failed": "❌ Не удалось отправить",
     }.get(result, result)
     await callback.answer(text, show_alert=True)
 
@@ -304,12 +304,16 @@ async def on_toggle_active(
     chat = await _current_chat(dialog_manager, group_chat_service)
     bot = callback.bot
     if chat is None or bot is None or callback.from_user is None:
-        await callback.answer("Чат не найден", show_alert=True)
+        await callback.answer("❌ Чат не найден", show_alert=True)
         return
     if not await is_chat_admin(bot, chat.chat_id, callback.from_user.id):
-        await callback.answer("Нужны права администратора", show_alert=True)
+        await callback.answer("❌ Нужны права администратора чата", show_alert=True)
         return
-    await group_chat_service.set_enabled(chat.chat_id, chat.status != "active")
+    enabled = chat.status != "active"
+    await group_chat_service.set_enabled(chat.chat_id, enabled)
+    await callback.answer(
+        "🟢 Рассылка включена" if enabled else "🔴 Рассылка выключена"
+    )
 
 
 def build_group_setup_dialog() -> Dialog:
@@ -318,11 +322,13 @@ def build_group_setup_dialog() -> Dialog:
     return Dialog(
         Window(
             Const(
-                "👥 <b>МОИ ГРУППЫ</b>\n\nНет чатов. Добавьте меня в группу и нажмите «Мои группы» снова.",
+                "<b>💬 Мои чаты</b>\n\n"
+                "Нет чатов. Добавьте меня в группу и нажмите «💬 Мои чаты» снова.",
                 when=~F["has_chats"],
             ),
             Const(
-                "👥 <b>МОИ ГРУППЫ</b>\n\nВыберите чат для настройки.",
+                "<b>💬 Мои чаты</b>\n\n"
+                "Выберите чат для настройки:",
                 when=F["has_chats"],
             ),
             Column(
@@ -335,64 +341,67 @@ def build_group_setup_dialog() -> Dialog:
                 ),
                 when=F["has_chats"],
             ),
-            SwitchTo(Const("⬅️ В меню"), id="to_menu", state=UserMenuSG.main),
+            SwitchTo(Const("◀️ В главное меню"), id="to_menu", state=UserMenuSG.main),
             state=GroupSetupSG.chats_list,
             getter=get_chats_list_data,
         ),
         Window(
             Const(
-                "Выберите группы расписания для этого чата:",
+                "<b>🎓 Группы расписания</b>\n\n"
+                "Выберите группы для этого чата:",
                 when=F["has_groups"],
             ),
             Const(
+                "<b>🎓 Группы расписания</b>\n\n"
                 "Расписание ещё не загружено — групп нет. Попробуйте позже.",
                 when=~F["has_groups"],
             ),
             ScrollingGroup(
                 Multiselect(
                     Format("✅ {item[1]}"),
-                    Format("▫️ {item[1]}"),
+                    Format("⬜ {item[1]}"),
                     id="chat_groups_ms",
                     item_id_getter=lambda item: item[0],
                     items="groups",
                 ),
                 id="chat_groups_scroll",
-                width=4,
-                height=6,
+                width=2,
+                height=7,
                 when=F["has_groups"],
             ),
             Row(
                 Button(Const("✅ Сохранить"), id="save_groups", on_click=on_groups_save, when=F["has_groups"]),
-                SwitchTo(Const("⬅️ Назад"), id="back_settings", state=GroupSetupSG.settings),
+                SwitchTo(Const("❌ Отмена"), id="back_settings", state=GroupSetupSG.settings),
             ),
             state=GroupSetupSG.pick_groups,
             getter=get_pick_groups_data,
         ),
         Window(
             Format(
-                "👥 <b>{title}</b>\n\n"
-                "ГРУППЫ    {groups}\n"
-                "РАССЫЛКА  {status}\n"
-                "ЗАКРЕП    {pin}"
+                "<b>💬 {title}</b>\n\n"
+                "<b>Группы:</b> {groups}\n"
+                "<b>Рассылка:</b> {status}\n"
+                "<b>Закреп:</b> {pin}"
             ),
             Column(
                 SwitchTo(Const("✏️ Изменить группы"), id="change_groups", state=GroupSetupSG.pick_groups, when=F["configured"]),
                 Button(Format("{pin_toggle}"), id="pin_toggle", on_click=on_toggle_pin, when=F["configured"]),
-                Button(Const("📨 Тестовое сообщение"), id="send_test", on_click=on_send_test, when=F["configured"]),
+                Button(Const("📤 Тестовая отправка"), id="send_test", on_click=on_send_test, when=F["configured"]),
                 Button(Format("{active_toggle}"), id="active_toggle", on_click=on_toggle_active, when=F["configured"]),
             ),
-            SwitchTo(Const("⬅️ К списку чатов"), id="back_chats", state=GroupSetupSG.chats_list),
+            SwitchTo(Const("◀️ Назад"), id="back_chats", state=GroupSetupSG.chats_list),
             state=GroupSetupSG.settings,
             getter=get_settings_data,
         ),
         Window(
             Format(
-                "📌 <b>ЗАКРЕП НЕДОСТУПЕН</b>\n\n"
-                "Выдайте мне права администратора с правом «Закрепление сообщений» в «{title}» и проверьте снова."
+                "<b>📌 Закреп недоступен</b>\n\n"
+                "Выдайте мне права администратора с правом «Закрепление сообщений» "
+                "в «{title}» и проверьте снова."
             ),
             Row(
                 Button(Const("🔄 Проверить снова"), id="pin_check", on_click=on_toggle_pin),
-                SwitchTo(Const("⬅️ Назад"), id="back_settings2", state=GroupSetupSG.settings),
+                SwitchTo(Const("◀️ Назад"), id="back_settings2", state=GroupSetupSG.settings),
             ),
             state=GroupSetupSG.pin_denied,
             getter=get_pin_denied_data,

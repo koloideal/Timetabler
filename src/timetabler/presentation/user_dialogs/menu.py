@@ -47,11 +47,17 @@ async def get_user_menu_data(
     subscribed = set(user.groups) if user else set()
     total = len(await study_group_service.list_groups())
     enabled = user.notifications_enabled if user else True
+    name = ""
+    if event_from_user is not None:
+        name = event_from_user.first_name or event_from_user.username or ""
     return {
+        "name": name,
         "subscribed": len(subscribed),
         "total_groups": total,
-        "notifications": "🔔 включены" if enabled else "🔕 выключены",
-        "notifications_btn": "🔔 Уведомления" if enabled else "🔕 Уведомления",
+        "notifications": "🟢 вкл" if enabled else "🔴 выкл",
+        "notifications_btn": (
+            "🔕 Выключить уведомления" if enabled else "🔔 Включить уведомления"
+        ),
     }
 
 
@@ -65,7 +71,9 @@ async def on_toggle_notifications(
     user = await user_service.get_by_id(call.from_user.id)
     enabled = not (user.notifications_enabled if user else True)
     await user_service.set_notifications(call.from_user.id, enabled)
-    await call.answer("Уведомления включены" if enabled else "Уведомления выключены")
+    await call.answer(
+        "🔔 Уведомления включены" if enabled else "🔕 Уведомления выключены"
+    )
 
 
 @inject
@@ -80,13 +88,13 @@ async def on_show_my_schedule(
 ) -> None:
     user = await user_service.get_by_id(call.from_user.id)
     if user is None or not user.groups:
-        await call.answer("Сначала выбери группы", show_alert=True)
+        await call.answer("❌ Сначала выберите группы в подписках", show_alert=True)
         return
     target = next_study_day(date.today())
     day = await broadcast_service.day_schedule(target)
     messages = group_messages(day, target, user.groups, app_config)
     if not messages:
-        await call.answer("Расписания пока нет", show_alert=True)
+        await call.answer("❌ Расписания пока нет", show_alert=True)
         return
     for markdown, markup in messages:
         await notifier.send_rich_message(call.from_user.id, markdown, markup)
@@ -159,24 +167,27 @@ def build_user_menu_dialog() -> Dialog:
     return Dialog(
         Window(
             Format(
-                "📅 <b>Расписание занятий</b>\n\n"
+                "<b>👋 Привет, {name}!</b>\n\n"
                 "Присылаю новое расписание, как только оно появляется.\n\n"
-                "Подписка: {subscribed} из {total_groups} групп\n"
-                "Уведомления: {notifications}"
+                "🎓 <b>Подписка:</b> {subscribed} из {total_groups} групп\n"
+                "🔔 <b>Уведомления:</b> {notifications}"
             ),
             Button(Const("📅 Моё расписание"), id="u_schedule", on_click=on_show_my_schedule),
-            SwitchTo(Const("📚 Подписки"), id="u_groups", state=UserMenuSG.groups),
-            Button(Const("👥 Мои группы"), id="u_chats", on_click=on_my_chats),
+            SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
+            Button(Const("💬 Мои чаты"), id="u_chats", on_click=on_my_chats),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
             state=UserMenuSG.main,
             getter=get_user_menu_data,
         ),
         Window(
-            Const("Отметьте группы, по которым присылать расписание:"),
+            Const(
+                "<b>🎓 Подписки</b>\n\n"
+                "Выберите группы, по которым присылать расписание:"
+            ),
             ScrollingGroup(
                 Multiselect(
                     Format("✅ {item[0]}"),
-                    Format("{item[0]}"),
+                    Format("⬜ {item[0]}"),
                     id="groups_ms",
                     item_id_getter=lambda x: x[1],
                     items="groups",
@@ -184,11 +195,11 @@ def build_user_menu_dialog() -> Dialog:
                     on_state_changed=on_group_toggled,
                 ),
                 id="groups_scroll",
-                width=3,
-                height=6,
+                width=2,
+                height=7,
                 hide_on_single_page=True,
             ),
-            SwitchTo(Const("Назад"), id="u_groups_back", state=UserMenuSG.main),
+            SwitchTo(Const("◀️ Назад"), id="u_groups_back", state=UserMenuSG.main),
             state=UserMenuSG.groups,
             getter=get_user_groups_data,
         ),

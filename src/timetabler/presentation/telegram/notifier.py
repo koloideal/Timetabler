@@ -30,12 +30,12 @@ class TelegramNotifier(CreatorNotifier):
 
     async def process_set_commands(self) -> None:
         user_commands = [
-            BotCommand(command="start", description="🚀 Начало работы"),
-            BotCommand(command="help", description="ℹ️ Справка"),
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="help", description="Справка"),
         ]
 
         creator_commands = user_commands + [
-            BotCommand(command="admin", description="🛠 Панель создателя"),
+            BotCommand(command="admin", description="Админ-панель"),
         ]
 
         await self.bot.set_my_commands(

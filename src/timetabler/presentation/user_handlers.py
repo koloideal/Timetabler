@@ -40,7 +40,7 @@ def new_user_router() -> Router:
 
         for chat in await group_chat_service.get_pending_for_user(user.user_id):
             await message.answer(
-                f"👋 Вы добавили меня в «{chat.title or chat.chat_id}». "
+                f"👋 Вы добавили меня в «{chat.title or chat.chat_id}».\n\n"
                 "Настроить расписание сейчас?",
                 reply_markup=group_setup_markup(chat.chat_id),
             )
@@ -70,7 +70,7 @@ def new_user_router() -> Router:
         chat_id = int((call.data or "").rsplit(":", 1)[-1])
         chat = await group_chat_service.get_by_id(chat_id)
         if chat is None or not await is_chat_admin(bot, chat_id, call.from_user.id):
-            await call.answer("⛔ Вы не админ этого чата", show_alert=True)
+            await call.answer("❌ Вы не админ этого чата", show_alert=True)
             return
         state = GroupSetupSG.settings if chat.study_groups else GroupSetupSG.pick_groups
         await dialog_manager.start(state, data={"chat_id": chat_id}, mode=StartMode.RESET_STACK)
@@ -80,7 +80,7 @@ def new_user_router() -> Router:
     async def on_group_setup_later(call: CallbackQuery) -> None:
         if isinstance(call.message, Message):
             await call.message.edit_reply_markup(reply_markup=None)
-        await call.answer("Хорошо — потом настроите в «Мои группы»")
+        await call.answer("Хорошо — потом настроите в «💬 Мои чаты»")
 
     @router.callback_query(F.data.startswith("sg:"))
     async def on_subgroup_mode(
@@ -109,7 +109,7 @@ def new_user_router() -> Router:
         day = await broadcast_service.day_schedule(for_date)
         content = group_content(day, for_date, group_id, mode, app_config)
         if content is None or not isinstance(call.message, Message):
-            await call.answer("Нет расписания за этот день", show_alert=True)
+            await call.answer("❌ Нет расписания за этот день", show_alert=True)
             return
         markdown, markup = content
         await call.message.edit_text(

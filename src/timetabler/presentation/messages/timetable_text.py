@@ -68,7 +68,7 @@ def format_group_schedule(
     config: AppConfig,
     mode: str = "a",
 ) -> str:
-    lines = [f"### 📚 ГРУППА {_md(group_label)}"]
+    lines = [f"### 🎓 Группа {_md(group_label)}"]
     if base_audience:
         lines.append(f"> сбор ауд. {_md(base_audience)}")
 
@@ -105,7 +105,7 @@ def build_broadcast_message(
     config: AppConfig,
 ) -> str:
     weekday = config.weekdays_short[for_date.weekday()]
-    header = f"**📅 РАСПИСАНИЕ НА {for_date.strftime('%d.%m.%Y')} ({weekday})**"
+    header = f"**📅 Расписание на {for_date.strftime('%d.%m.%Y')} ({weekday})**"
     body = "\n\n---\n\n".join(parts)
     return f"{header}\n\n{body}" if body else header
 
@@ -121,10 +121,10 @@ def subgroup_markup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=("✅ " if code == mode else "") + label,
+                    text=("🔘 " if code == mode else "⚪ ") + label,
                     callback_data=subgroup_callback(group_id, for_date, code),
                 )
-                for code, label in (("1", "Только 1 п/г"), ("2", "Только 2 п/г"), ("a", "Все"))
+                for code, label in (("1", "1 п/г"), ("2", "2 п/г"), ("a", "Все"))
             ]
         ]
     )
@@ -135,7 +135,7 @@ def subgroup_markup_mode(markup: InlineKeyboardMarkup | None) -> str | None:
         return None
     for row in markup.inline_keyboard:
         for button in row:
-            if button.text.startswith("✅") and button.callback_data:
+            if button.text.startswith("🔘") and button.callback_data:
                 return button.callback_data.rsplit(":", 1)[-1]
     return None
 
@@ -195,7 +195,7 @@ def build_channel_html(
     config: AppConfig,
 ) -> str:
     weekday = config.weekdays_short[for_date.weekday()]
-    out = [f"<h3>📅 РАСПИСАНИЕ НА {for_date.strftime('%d.%m.%Y')} ({weekday})</h3>"]
+    out = [f"<h3>📅 Расписание на {for_date.strftime('%d.%m.%Y')} ({weekday})</h3>"]
     for label, body in parts:
         out.append(f"<details><summary>{escape(label)}</summary>{body}</details>")
     return "".join(out)

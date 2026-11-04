@@ -24,11 +24,11 @@ class TelegramScheduleSender(ScheduleSender):
 
     @staticmethod
     def _with_note(markdown: str, note: str | None) -> str:
-        return f"{markdown}\n\n---\n\n*{note}*" if note else markdown
+        return f"{markdown}\n\n---\n\n🔄 *{note}*" if note else markdown
 
     @staticmethod
     def _with_note_html(html: str, note: str | None) -> str:
-        return f"{html}<p><i>{note}</i></p>" if note else html
+        return f"{html}<p>🔄 <i>{note}</i></p>" if note else html
 
     async def send_group_schedule(
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
