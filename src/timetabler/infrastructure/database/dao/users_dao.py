@@ -101,6 +101,21 @@ class UsersDAO:
 
         return self._map_to_domain(orm_user)
 
+    async def set_subgroup_mode(self, user_id: int, mode: str) -> User | None:
+        stmt = (
+            update(OrmUser)
+            .where(OrmUser.user_id == user_id)
+            .values(subgroup_mode=mode)
+            .returning(OrmUser)
+        )
+        result = await self.session.execute(stmt)
+        orm_user = result.scalar_one_or_none()
+
+        if not orm_user:
+            return None
+
+        return self._map_to_domain(orm_user)
+
     async def set_banned(self, user_id: int, is_banned: bool) -> User | None:
         stmt = (
             update(OrmUser)
@@ -125,4 +140,5 @@ class UsersDAO:
             notifications_enabled=orm_user.notifications_enabled,
             groups=list(orm_user.groups),
             created_at=orm_user.created_at,
+            subgroup_mode=orm_user.subgroup_mode,
         )

@@ -10,6 +10,7 @@ class User:
     notifications_enabled: bool
     groups: list[str]
     created_at: datetime
+    subgroup_mode: str = "a"
 
 
 @dataclass

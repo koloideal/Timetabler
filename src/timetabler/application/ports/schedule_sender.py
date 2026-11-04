@@ -15,7 +15,7 @@ class ChatDelivery:
 class ScheduleSender(Protocol):
     async def send_group_schedule(
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
-        note: str | None = None,
+        note: str | None = None, mode: str = "a",
     ) -> int | None: ...
 
     async def send_channel_schedule(

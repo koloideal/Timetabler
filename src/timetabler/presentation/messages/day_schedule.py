@@ -37,15 +37,16 @@ def group_messages(
     for_date: date,
     groups: Iterable[str],
     config: AppConfig,
+    mode: str = "a",
 ) -> list[tuple[str, InlineKeyboardMarkup | None]]:
     messages = []
     for g in groups:
         if not g.isdigit() or int(g) not in day.by_group:
             continue
         group_id = int(g)
-        markup = subgroup_markup(group_id, for_date) if group_id in day.split else None
+        markup = subgroup_markup(group_id, for_date, mode) if group_id in day.split else None
         messages.append((
-            build_broadcast_message(for_date, [_part(day, group_id, config)], config),
+            build_broadcast_message(for_date, [_part(day, group_id, config, mode)], config),
             markup,
         ))
     return messages

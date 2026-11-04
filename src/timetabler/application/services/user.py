@@ -42,6 +42,11 @@ class UserService:
     async def set_notifications(self, user_id: int, enabled: bool) -> User | None:
         return await self.users_dao.set_notifications(user_id, enabled)
 
+    async def set_subgroup_mode(self, user_id: int, mode: str) -> User | None:
+        if mode not in {"a", "1", "2"}:
+            return None
+        return await self.users_dao.set_subgroup_mode(user_id, mode)
+
     async def is_banned(self, user_id: int) -> bool:
         user = await self.users_dao.get_by_id(user_id)
         return user.is_banned if user else False

@@ -32,9 +32,9 @@ class TelegramScheduleSender(ScheduleSender):
 
     async def send_group_schedule(
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
-        note: str | None = None,
+        note: str | None = None, mode: str = "a",
     ) -> int | None:
-        content = group_content(day, for_date, group_id, "a", self.config)
+        content = group_content(day, for_date, group_id, mode, self.config)
         if content is None:
             return None
         markdown, markup = content

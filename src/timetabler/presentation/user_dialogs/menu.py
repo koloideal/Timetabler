@@ -91,7 +91,7 @@ async def _show_schedule(
         await call.answer("❌ Сначала выберите группы в подписках", show_alert=True)
         return
     day = await broadcast_service.day_schedule(for_date)
-    messages = group_messages(day, for_date, user.groups, app_config)
+    messages = group_messages(day, for_date, user.groups, app_config, mode=user.subgroup_mode)
     if not messages:
         await call.answer("❌ Нет расписания за этот день", show_alert=True)
         return

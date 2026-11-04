@@ -86,6 +86,7 @@ def new_user_router() -> Router:
     async def on_subgroup_mode(
         call: CallbackQuery,
         broadcast_service: FromDishka[BroadcastService],
+        user_service: FromDishka[UserService],
         app_config: FromDishka[AppConfig],
     ) -> None:
         try:
@@ -116,6 +117,7 @@ def new_user_router() -> Router:
             rich_message=InputRichMessage(markdown=markdown),
             reply_markup=markup,
         )
+        await user_service.set_subgroup_mode(call.from_user.id, mode)
         await call.answer()
 
     return router

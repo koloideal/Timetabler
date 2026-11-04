@@ -274,7 +274,8 @@ class BroadcastService:
             if group_id in already:
                 continue
             message_id = await self.sender.send_group_schedule(
-                user_id, revision.for_date, day, group_id, note
+                user_id, revision.for_date, day, group_id, note,
+                mode=user.subgroup_mode,
             )
             if message_id is None:
                 ok = False
