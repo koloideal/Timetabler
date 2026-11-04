@@ -16,7 +16,10 @@ class GridParserConfig:
 
 @dataclass(frozen=True)
 class SheetsClientConfig:
-    scopes: tuple[str, ...] = ("https://www.googleapis.com/auth/spreadsheets.readonly",)
+    scopes: tuple[str, ...] = (
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    )
     max_attempts: int = 4
     retry_base_delay: float = 1.0
     retry_max_delay: float = 30.0

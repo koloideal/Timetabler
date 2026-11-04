@@ -110,8 +110,10 @@ class ServicesProvider(Provider):
         return StudyGroupService(study_groups_dao)
 
     @provide
-    def get_sheets_service(self, sheet_sources_dao: SheetSourcesDAO) -> SheetsService:
-        return SheetsService(sheet_sources_dao)
+    def get_sheets_service(
+        self, sheet_sources_dao: SheetSourcesDAO, sheets_client: GoogleSheetsClient
+    ) -> SheetsService:
+        return SheetsService(sheet_sources_dao, sheets_client)
 
     @provide
     def get_settings_service(

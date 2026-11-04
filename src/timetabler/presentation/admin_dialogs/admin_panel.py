@@ -4,7 +4,7 @@ from datetime import date
 
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram_dialog import Dialog, DialogManager, Window
 from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import (
@@ -625,6 +625,48 @@ async def on_schedule_group_selected(
     await call.answer()
 
 
+async def _send_schedule_xlsx(
+    call: CallbackQuery, for_date: date, sheets_service: SheetsService
+) -> None:
+    assert call.bot is not None and call.from_user is not None
+    try:
+        content = await sheets_service.export_xlsx(for_date)
+    except SheetAccessError as e:
+        await call.answer(str(e), show_alert=True)
+        return
+    if content is None:
+        await call.answer("Нет таблицы для этого дня", show_alert=True)
+        return
+    await call.bot.send_document(
+        call.from_user.id,
+        BufferedInputFile(
+            content, filename=f"schedule_{for_date.strftime('%d.%m.%Y')}.xlsx"
+        ),
+        caption=f"Таблица на {for_date.strftime('%d.%m.%Y')}",
+    )
+    await call.answer("✅ Отправлено")
+
+
+@inject
+async def on_xlsx_today(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    sheets_service: FromDishka[SheetsService],
+) -> None:
+    await _send_schedule_xlsx(call, date.today(), sheets_service)
+
+
+@inject
+async def on_xlsx_tomorrow(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    sheets_service: FromDishka[SheetsService],
+) -> None:
+    await _send_schedule_xlsx(call, next_study_day(date.today()), sheets_service)
+
+
 @inject
 async def get_sheets_settings_data(
     dialog_manager: DialogManager,
@@ -1020,6 +1062,10 @@ def build_admin_panel_dialog() -> Dialog:
                 height=5,
                 hide_on_single_page=True,
                 when="has_schedule",
+            ),
+            Row(
+                Button(Const("📥 XLSX сегодня"), id="xlsx_today", on_click=on_xlsx_today),
+                Button(Const("📥 XLSX завтра"), id="xlsx_tomorrow", on_click=on_xlsx_tomorrow),
             ),
             SwitchTo(Const("⬅️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
             state=AdminPanelSG.schedule_view,

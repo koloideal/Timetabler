@@ -24,7 +24,7 @@ from timetabler.presentation.user_dialogs.group_setup import is_chat_admin
 def new_user_router() -> Router:
     router = Router()
 
-    @router.message(Command("start"))
+    @router.message(Command("start"), F.chat.type == "private")
     async def start(
         message: Message,
         dialog_manager: DialogManager,

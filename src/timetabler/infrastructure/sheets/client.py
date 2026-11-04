@@ -19,6 +19,7 @@ class GoogleSheetsClient:
         self.config = config
         self.credentials_path = credentials_path
         self._values: Resource | None = None
+        self._files: Resource | None = None
         self.service_account_email: str | None = None
         self._logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ class GoogleSheetsClient:
             self._values = build(
                 "sheets", "v4", credentials=credentials, cache_discovery=False
             ).spreadsheets().values()
+            self._files = build(
+                "drive", "v3", credentials=credentials, cache_discovery=False
+            ).files()
         except FileNotFoundError as e:
             raise SheetAccessError(f"файл ключа не найден: {self.credentials_path}") from e
         except (ValueError, OSError, DefaultCredentialsError) as e:
@@ -99,3 +103,21 @@ class GoogleSheetsClient:
             await asyncio.sleep(delay)
             delay = min(delay * 2, self.config.retry_max_delay)
         raise AssertionError("unreachable")
+
+    async def export_xlsx(self, spreadsheet_id: str) -> bytes:
+        self._ensure_configured()
+        self._logger.info("Sheets export xlsx: %s", spreadsheet_id)
+        try:
+            assert self._files is not None
+            request = self._files.export_media(
+                fileId=spreadsheet_id,
+                mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            content: bytes = await asyncio.to_thread(request.execute)
+            return content
+        except HttpError as e:
+            if e.status_code == 404:
+                raise SheetAccessError("таблица не найдена — проверьте ID") from e
+            if e.status_code == 403:
+                raise SheetAccessError("нет доступа — расшарьте таблицу на сервисный аккаунт") from e
+            raise
