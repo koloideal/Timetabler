@@ -27,9 +27,6 @@ from timetabler.application.services.poller import next_study_day
 from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.domain.schemas import GroupChat
-from timetabler.presentation.user_dialogs.menu import UserMenuSG
-
-_logger = logging.getLogger(__name__)
 
 
 class GroupSetupSG(StatesGroup):
@@ -222,7 +219,9 @@ async def on_groups_save(
         try:
             await bot.send_message(chat.chat_id, f"Расписание подключено: {groups_text}")
         except Exception:
-            _logger.warning("Cannot notify chat %s about setup", chat.chat_id)
+            logging.getLogger(__name__).warning(
+                "Cannot notify chat %s about setup", chat.chat_id
+            )
         await broadcast_service.deliver_to_chat(updated, next_study_day(date.today()))
 
     await callback.answer("✅ Группы сохранены")
@@ -314,6 +313,8 @@ async def on_toggle_active(
 
 
 def build_group_setup_dialog() -> Dialog:
+    from timetabler.presentation.user_dialogs.menu import UserMenuSG
+
     return Dialog(
         Window(
             Const(
