@@ -19,7 +19,6 @@ from aiogram_dialog.widgets.text import Const, Format
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 
-from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
@@ -31,6 +30,8 @@ from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
+from timetabler.presentation.messages import preview as schedule_preview
+from timetabler.presentation.telegram import TelegramNotifier, TelegramScheduleSender
 
 
 class AdminPanelSG(StatesGroup):
@@ -316,12 +317,15 @@ async def on_channel_schedule(
     button: Button,
     manager: DialogManager,
     broadcast_service: FromDishka[BroadcastService],
+    schedule_sender: FromDishka[TelegramScheduleSender],
 ) -> None:
     chat_id = manager.dialog_data.get("selected_channel_id")
     if chat_id is None:
         return
     try:
-        sent = await broadcast_service.send_channel_schedule(chat_id, next_study_day(date.today()))
+        target = next_study_day(date.today())
+        day = await broadcast_service.day_schedule(target)
+        sent = await schedule_sender.send_channel_schedule(chat_id, target, day)
     except TelegramAPIError as e:
         await call.answer(f"Не смог отправить: {e.message}", show_alert=True)
         return
@@ -582,7 +586,8 @@ async def get_schedule_view_data(
     **kwargs: Any,
 ) -> dict[str, Any]:
     target = next_study_day(date.today())
-    preview = await broadcast_service.build_preview(target)
+    day = await broadcast_service.day_schedule(target)
+    preview = schedule_preview(day, target, app_config)
     groups = await study_group_service.list_groups()
     weekday = app_config.weekdays_short[target.weekday()]
     return {
@@ -602,14 +607,17 @@ async def on_schedule_group_selected(
     manager: DialogManager,
     item_id: str,
     broadcast_service: FromDishka[BroadcastService],
-    bot_service: FromDishka[BotService],
+    notifier: FromDishka[TelegramNotifier],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     group_id = None if item_id == "all" else int(item_id)
-    preview = await broadcast_service.build_preview(next_study_day(date.today()), group_id)
+    target = next_study_day(date.today())
+    day = await broadcast_service.day_schedule(target)
+    preview = schedule_preview(day, target, app_config, group_id)
     if preview is None:
         await call.answer("Нет расписания", show_alert=True)
         return
-    await bot_service.send_rich_to_creator(preview.markdown)
+    await notifier.send_rich_to_creator(preview.markdown)
     await call.answer()
 
 

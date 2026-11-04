@@ -6,14 +6,13 @@ from typing import Any
 from dishka import AsyncContainer
 
 from timetabler.application.exceptions import TimetableParseError
-from timetabler.application.ports import ScheduleParser
-from timetabler.application.services.bot import BotService
+from timetabler.application.ports import CreatorNotifier, ScheduleParser
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.timetable import TimetableService
 from timetabler.application.services.user import UserService
-from timetabler.domain.schemas import PendingBroadcast
+from timetabler.domain.schemas import BroadcastSummary, PendingBroadcast
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
@@ -48,7 +47,6 @@ class SheetsPoller:
 
         async with self.container() as scope:
             config: Config = await scope.get(Config)
-            app_config: AppConfig = await scope.get(AppConfig)
             client: GoogleSheetsClient = await scope.get(GoogleSheetsClient)
             parser: ScheduleParser = await scope.get(ScheduleParser)
             settings_service: SettingsService = await scope.get(SettingsService)
@@ -56,7 +54,7 @@ class SheetsPoller:
             user_service: UserService = await scope.get(UserService)
             timetable_service: TimetableService = await scope.get(TimetableService)
             broadcast_service: BroadcastService = await scope.get(BroadcastService)
-            bot_service: BotService = await scope.get(BotService)
+            notifier: CreatorNotifier = await scope.get(CreatorNotifier)
 
             settings = await settings_service.get_sheets_settings()
             poll_interval = settings.poll_interval_seconds
@@ -103,10 +101,8 @@ class SheetsPoller:
                 await settings_service.set_pending_broadcast(
                     PendingBroadcast(weekday=weekday, marker=marker, dates=result.dates)
                 )
-                preview = await broadcast_service.build_preview(target_date)
-                await bot_service.ask_broadcast_confirmation(
-                    preview.markdown if preview else "📅 Новое расписание"
-                )
+                day = await broadcast_service.day_schedule(target_date)
+                await notifier.ask_broadcast_confirmation(target_date, day)
                 self._logger.info(
                     "Sheet %s: waiting for creator confirmation (weekday %s)",
                     source.spreadsheet_id, weekday,
@@ -126,13 +122,17 @@ class SheetsPoller:
             await sheets_service.mark_header(weekday, marker)
 
             dates = ", ".join(d.strftime("%d.%m.%Y") for d in result.dates)
-            await bot_service.notify_creator(
-                "📊 <b>РАСПИСАНИЕ ОБНОВЛЕНО</b>\n"
-                f"<pre>ДЕНЬ     {app_config.weekdays_short[weekday]} ({dates})\n"
-                f"ПАР      {result.lessons}\n"
-                f"ГРУПП    {result.groups}\n"
-                f"ЮЗЕРАМ   {total_sent} (+{total_failed} недост.)\n"
-                f"ЧАТАМ    {chats_sent} (+{chats_failed} недост.)</pre>"
+            await notifier.notify_schedule_updated(
+                BroadcastSummary(
+                    weekday=weekday,
+                    dates=result.dates,
+                    lessons=result.lessons,
+                    groups=result.groups,
+                    users_sent=total_sent,
+                    users_failed=total_failed,
+                    chats_sent=chats_sent,
+                    chats_failed=chats_failed,
+                )
             )
             self._logger.info(
                 "Sheet %s: broadcast %s for weekday %s",

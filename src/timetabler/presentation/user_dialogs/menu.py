@@ -16,11 +16,13 @@ from aiogram_dialog.widgets.text import Const, Format
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 
-from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.poller import next_study_day
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
+from timetabler.infrastructure.config.app import AppConfig
+from timetabler.presentation.messages import group_messages
+from timetabler.presentation.telegram import TelegramNotifier
 
 
 class UserMenuSG(StatesGroup):
@@ -68,20 +70,21 @@ async def on_show_my_schedule(
     manager: DialogManager,
     user_service: FromDishka[UserService],
     broadcast_service: FromDishka[BroadcastService],
-    bot_service: FromDishka[BotService],
+    notifier: FromDishka[TelegramNotifier],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     user = await user_service.get_by_id(call.from_user.id)
     if user is None or not user.groups:
         await call.answer("Сначала выбери группы", show_alert=True)
         return
-    messages = await broadcast_service.build_user_group_messages(
-        next_study_day(date.today()), user.groups
-    )
+    target = next_study_day(date.today())
+    day = await broadcast_service.day_schedule(target)
+    messages = group_messages(day, target, user.groups, app_config)
     if not messages:
         await call.answer("Расписания пока нет", show_alert=True)
         return
     for markdown, markup in messages:
-        await bot_service.send_rich_message(call.from_user.id, markdown, markup)
+        await notifier.send_rich_message(call.from_user.id, markdown, markup)
     await call.answer()
 
 

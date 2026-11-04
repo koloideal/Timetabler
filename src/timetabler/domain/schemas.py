@@ -74,6 +74,26 @@ class SheetSource:
 
 
 @dataclass
+class DaySchedule:
+    by_group: dict[int, list[TimetableEntry]]
+    audiences: dict[int, str]
+    labels: dict[int, str]
+    split: set[int]
+
+
+@dataclass
+class BroadcastSummary:
+    weekday: int
+    dates: list[date]
+    lessons: int
+    groups: int
+    users_sent: int
+    users_failed: int
+    chats_sent: int
+    chats_failed: int
+
+
+@dataclass
 class SheetsSettings:
     schedule_range: str
     date_cell: str

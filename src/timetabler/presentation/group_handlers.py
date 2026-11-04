@@ -4,18 +4,14 @@ from aiogram import F, Router
 from aiogram.enums import ChatMemberStatus
 from aiogram.enums.chat_type import ChatType
 from aiogram.filters import Command
-from aiogram.types import (
-    ChatMemberUpdated,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import ChatMemberUpdated, Message
 from dishka import FromDishka
 
-from timetabler.application.services.bot import BotService
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.infrastructure.config.models import Config
+from timetabler.presentation.messages import channel_approval_markup
+from timetabler.presentation.telegram import TelegramNotifier
 
 
 def new_group_router() -> Router:
@@ -36,7 +32,7 @@ def new_group_router() -> Router:
         event: ChatMemberUpdated,
         group_chat_service: FromDishka[GroupChatService],
         channel_service: FromDishka[ChannelService],
-        bot_service: FromDishka[BotService],
+        notifier: FromDishka[TelegramNotifier],
         config: FromDishka[Config],
     ) -> None:
         status = event.new_chat_member.status
@@ -48,18 +44,14 @@ def new_group_router() -> Router:
                 title = event.chat.title or str(event.chat.id)
                 if event.from_user and event.from_user.id == config.bot.creator_id:
                     await channel_service.approve(event.chat.id)
-                    await bot_service.notify_creator(
+                    await notifier.notify_creator(
                         f"📢 Канал «{title}» одобрен автоматически и включён в рассылку."
                     )
                 else:
                     byline = f" от @{event.from_user.username}" if event.from_user and event.from_user.username else ""
-                    markup = InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"chan:approve:{event.chat.id}"),
-                        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"chan:decline:{event.chat.id}"),
-                    ]])
-                    await bot_service.notify_creator(
+                    await notifier.notify_creator(
                         f"📢 Меня добавили в канал «{title}» (<code>{event.chat.id}</code>){byline}.\nРазрешить?",
-                        reply_markup=markup,
+                        reply_markup=channel_approval_markup(event.chat.id),
                     )
             elif status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED):
                 await channel_service.remove(event.chat.id)

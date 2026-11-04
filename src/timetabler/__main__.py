@@ -19,6 +19,7 @@ from timetabler.infrastructure.ioc import (
     AppConfigProvider,
     DatabaseProvider,
     ParsersProvider,
+    PresentationProvider,
     ServicesProvider,
     SheetsProvider,
 )
@@ -28,11 +29,11 @@ from timetabler.presentation.middlewares.reject_not_creator import RejectNotCrea
 
 
 async def main() -> None:
-    from timetabler.application.services.bot import BotService
     from timetabler.presentation.admin_dialogs import build_admin_panel_dialog
     from timetabler.presentation.admin_handlers import new_admin_router
     from timetabler.presentation.error_handlers import new_error_router
     from timetabler.presentation.group_handlers import new_group_router
+    from timetabler.presentation.telegram import TelegramNotifier
     from timetabler.presentation.user_dialogs import build_user_menu_dialog
     from timetabler.presentation.user_handlers import new_user_router
 
@@ -52,6 +53,7 @@ async def main() -> None:
         ServicesProvider(),
         SheetsProvider(),
         ParsersProvider(),
+        PresentationProvider(),
         AppConfigProvider(),
         context={Config: config, Bot: bot},
     )
@@ -78,8 +80,8 @@ async def main() -> None:
     setup_dishka(router=dp, container=container, auto_inject=True)
 
     async with container() as nested_container:
-        bot_service = await nested_container.get(BotService)
-        await bot_service.process_set_commands()
+        notifier = await nested_container.get(TelegramNotifier)
+        await notifier.process_set_commands()
 
     await bot.delete_webhook(drop_pending_updates=True)
 

@@ -6,12 +6,12 @@ from aiogram.types import CallbackQuery, InputRichMessage, Message
 from aiogram_dialog import DialogManager, StartMode
 from dishka import FromDishka
 
-from timetabler.application.services.bot import BotService
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
-from timetabler.infrastructure.notifications.timetable_text import subgroup_markup_mode
+from timetabler.presentation.messages import group_content, subgroup_markup_mode
+from timetabler.presentation.telegram import TelegramNotifier
 from timetabler.presentation.user_dialogs import UserMenuSG
 
 
@@ -23,12 +23,12 @@ def new_user_router() -> Router:
         message: Message,
         dialog_manager: DialogManager,
         user_service: FromDishka[UserService],
-        bot_service: FromDishka[BotService],
+        notifier: FromDishka[TelegramNotifier],
     ) -> None:
         assert message.from_user is not None
         user, is_new = await user_service.get_or_create(message.from_user.id, message.from_user.username)
         if is_new:
-            await bot_service.notify_new_user(user)
+            await notifier.notify_new_user(user)
         await dialog_manager.start(UserMenuSG.main, mode=StartMode.RESET_STACK)
 
     @router.message(Command("help"))
@@ -47,6 +47,7 @@ def new_user_router() -> Router:
     async def on_subgroup_mode(
         call: CallbackQuery,
         broadcast_service: FromDishka[BroadcastService],
+        app_config: FromDishka[AppConfig],
     ) -> None:
         try:
             _, gid_s, date_s, mode = (call.data or "").split(":")
@@ -66,7 +67,8 @@ def new_user_router() -> Router:
             await call.answer()
             return
 
-        content = await broadcast_service.build_group_content(for_date, group_id, mode)
+        day = await broadcast_service.day_schedule(for_date)
+        content = group_content(day, for_date, group_id, mode, app_config)
         if content is None or not isinstance(call.message, Message):
             await call.answer("Нет расписания за этот день", show_alert=True)
             return
