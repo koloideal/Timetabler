@@ -198,8 +198,8 @@ def build_user_menu_dialog() -> Dialog:
         Window(
             Format(
                 "<b>📅 Timetabler</b>\n\n"
-                "🎓 <b>Подписка:</b> {subscribed_groups}\n\n"
-                "<i>Powered by Kolo</i>"
+                "🎓 <b>Вы подписаны:</b> {subscribed_groups}\n\n"
+                "<i>powered by <b>kolo</b></i>"
             ),
             Row(
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
