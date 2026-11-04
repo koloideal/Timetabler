@@ -4,8 +4,7 @@ from aiogram import F, Router
 from aiogram.enums import ChatMemberStatus
 from aiogram.enums.chat_type import ChatType
 from aiogram.exceptions import TelegramAPIError
-from aiogram.filters import Command
-from aiogram.types import ChatMemberUpdated, Message
+from aiogram.types import ChatMemberUpdated
 from dishka import FromDishka
 
 from timetabler.application.services.channel import ChannelService
@@ -20,14 +19,6 @@ def new_group_router() -> Router:
     router = Router()
     router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
     logger = logging.getLogger(__name__)
-
-    @router.message(Command("start"))
-    async def group_start(message: Message) -> None:
-        await message.answer(
-            "👋 <b>TIMETABLER</b>\n━━━━━━━━━━━━━━━━━━\n"
-            "Буду присылать расписание в этот чат.\n\n"
-            "<i>Админ группы настраивает расписание в личке со мной — «Мои группы».</i>"
-        )
 
     @router.my_chat_member()
     async def on_bot_membership_change(

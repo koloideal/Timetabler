@@ -366,7 +366,7 @@ async def get_groups_list_data(
     **kwargs: object,
 ) -> dict[str, object]:
     groups = await study_group_service.list_groups()
-    groups_alias = [(g.display_name, str(g.group_id)) for g in groups if g.alias]
+    groups_alias = [(str(g.group_id), str(g.group_id)) for g in groups if g.alias]
     groups_plain = [(str(g.group_id), str(g.group_id)) for g in groups if not g.alias]
     return {
         "groups_alias": groups_alias,
@@ -600,7 +600,7 @@ async def get_schedule_view_data(
         "lessons": preview.lessons if preview else 0,
         "has_schedule": preview is not None,
         "schedule_groups": [("📚 Все группы", "all")]
-        + [(g.display_name, str(g.group_id)) for g in groups],
+        + [(str(g.group_id), str(g.group_id)) for g in groups],
     }
 
 
