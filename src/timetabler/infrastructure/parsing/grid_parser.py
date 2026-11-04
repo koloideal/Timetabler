@@ -65,12 +65,14 @@ class GridScheduleParser:
         text = self._text(raw)
         if text is None:
             return None
-        if text.startswith("с"):
-            text = text[1:].strip()
-        try:
-            return datetime.strptime(text, self.config.time_format).time()
-        except ValueError:
-            raise TimetableParseError(f"Строка {row_no}: непонятное время «{text}»")
+        moved = re.search(r"[сc]\s*(\d{1,2}:\d{2})", text)
+        candidates = re.findall(r"\d{1,2}:\d{2}", text)
+        for candidate in ([moved.group(1)] if moved else []) + candidates:
+            try:
+                return datetime.strptime(candidate, self.config.time_format).time()
+            except ValueError:
+                continue
+        raise TimetableParseError(f"Строка {row_no}: непонятное время «{text}»")
 
     def _entries(
         self,
