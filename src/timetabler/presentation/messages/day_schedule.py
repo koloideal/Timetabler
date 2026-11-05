@@ -22,13 +22,20 @@ class SchedulePreview:
     lessons: int
 
 
-def _part(day: DaySchedule, group_id: int, config: AppConfig, mode: str = "a") -> str:
+def _part(
+    day: DaySchedule,
+    group_id: int,
+    config: AppConfig,
+    mode: str = "a",
+    is_compact: bool = False,
+) -> str:
     return format_group_schedule(
         day.labels[group_id],
         day.audiences.get(group_id),
         day.by_group[group_id],
         config,
         mode,
+        is_compact,
     )
 
 
@@ -38,6 +45,7 @@ def group_messages(
     groups: Iterable[str],
     config: AppConfig,
     mode: str = "a",
+    is_compact: bool = False,
 ) -> list[tuple[str, InlineKeyboardMarkup | None]]:
     messages = []
     for g in groups:
@@ -46,7 +54,9 @@ def group_messages(
         group_id = int(g)
         markup = subgroup_markup(group_id, for_date, mode) if group_id in day.split else None
         messages.append((
-            build_broadcast_message(for_date, [_part(day, group_id, config, mode)], config),
+            build_broadcast_message(
+                for_date, [_part(day, group_id, config, mode, is_compact)], config
+            ),
             markup,
         ))
     return messages
@@ -58,11 +68,12 @@ def group_content(
     group_id: int,
     mode: str,
     config: AppConfig,
+    is_compact: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup | None] | None:
     if group_id not in day.by_group:
         return None
     markdown = build_broadcast_message(
-        for_date, [_part(day, group_id, config, mode)], config
+        for_date, [_part(day, group_id, config, mode, is_compact)], config
     )
     markup = (
         subgroup_markup(group_id, for_date, mode) if group_id in day.split else None
@@ -75,6 +86,7 @@ def preview(
     for_date: date,
     config: AppConfig,
     group_id: int | None = None,
+    is_compact: bool = False,
 ) -> SchedulePreview | None:
     group_ids = [group_id] if group_id is not None else sorted(day.by_group)
     group_ids = [g for g in group_ids if g in day.by_group]
@@ -82,19 +94,27 @@ def preview(
         return None
     return SchedulePreview(
         markdown=build_broadcast_message(
-            for_date, [_part(day, gid, config) for gid in group_ids], config
+            for_date,
+            [_part(day, gid, config, is_compact=is_compact) for gid in group_ids],
+            config,
         ),
         groups=len(group_ids),
         lessons=sum(len(day.by_group[gid]) for gid in group_ids),
     )
 
 
-def channel_html(day: DaySchedule, for_date: date, config: AppConfig) -> str:
+def channel_html(
+    day: DaySchedule,
+    for_date: date,
+    config: AppConfig,
+    is_compact: bool = False,
+) -> str:
     parts = [
         (
             day.labels[gid],
             format_group_schedule_html(
-                day.audiences.get(gid), group_entries, config
+                day.audiences.get(gid), group_entries, config,
+                is_compact=is_compact,
             ),
         )
         for gid, group_entries in sorted(day.by_group.items())

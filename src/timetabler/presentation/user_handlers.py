@@ -108,7 +108,9 @@ def new_user_router() -> Router:
             return
 
         day = await broadcast_service.day_schedule(for_date)
-        content = group_content(day, for_date, group_id, mode, app_config)
+        content = group_content(
+            day, for_date, group_id, mode, app_config, is_compact=True
+        )
         if content is None or not isinstance(call.message, Message):
             await call.answer("❌ Нет расписания за этот день", show_alert=True)
             return

@@ -6,9 +6,12 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram_dialog import Dialog, DialogManager, Window
+from aiogram_dialog.api.entities import ChatEvent
 from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import (
     Button,
+    Calendar,
+    ManagedCalendar,
     Row,
     ScrollingGroup,
     Select,
@@ -49,6 +52,7 @@ class AdminPanelSG(StatesGroup):
     sheets_settings = State()
     setting_input = State()
     schedule_view = State()
+    schedule_day = State()
     channels_list = State()
     channel_detail = State()
 
@@ -588,6 +592,61 @@ async def on_sheet_id_input(
     await manager.switch_to(AdminPanelSG.sheets_list)
 
 
+def _picked_schedule_date(manager: DialogManager) -> date:
+    raw = manager.dialog_data.get("schedule_date")
+    if raw:
+        return date.fromisoformat(raw)
+    return next_study_day(date.today())
+
+
+async def _open_schedule_day(
+    event: ChatEvent,
+    manager: DialogManager,
+    for_date: date,
+    broadcast_service: BroadcastService,
+) -> None:
+    day = await broadcast_service.day_schedule(for_date)
+    if not day.by_group:
+        if isinstance(event, CallbackQuery):
+            await event.answer("❌ Нет расписания на этот день", show_alert=True)
+        return
+    manager.dialog_data["schedule_date"] = for_date.isoformat()
+    await manager.switch_to(AdminPanelSG.schedule_day)
+
+
+@inject
+async def on_schedule_date_selected(
+    event: ChatEvent,
+    widget: ManagedCalendar,
+    manager: DialogManager,
+    selected_date: date,
+    broadcast_service: FromDishka[BroadcastService],
+) -> None:
+    await _open_schedule_day(event, manager, selected_date, broadcast_service)
+
+
+@inject
+async def on_schedule_today(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+) -> None:
+    await _open_schedule_day(call, manager, date.today(), broadcast_service)
+
+
+@inject
+async def on_schedule_tomorrow(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+) -> None:
+    await _open_schedule_day(
+        call, manager, next_study_day(date.today()), broadcast_service
+    )
+
+
 @inject
 async def get_schedule_view_data(
     dialog_manager: DialogManager,
@@ -596,7 +655,7 @@ async def get_schedule_view_data(
     app_config: FromDishka[AppConfig],
     **kwargs: object,
 ) -> dict[str, object]:
-    target = next_study_day(date.today())
+    target = _picked_schedule_date(dialog_manager)
     day = await broadcast_service.day_schedule(target)
     preview = schedule_preview(day, target, app_config)
     groups = await study_group_service.list_groups()
@@ -606,9 +665,28 @@ async def get_schedule_view_data(
         "groups": preview.groups if preview else 0,
         "lessons": preview.lessons if preview else 0,
         "has_schedule": preview is not None,
-        "schedule_groups": [("👥 Все группы", "all")]
-        + [(str(g.group_id), str(g.group_id)) for g in groups],
+        "schedule_groups": [(str(g.group_id), str(g.group_id)) for g in groups],
     }
+
+
+async def _send_schedule_preview(
+    call: CallbackQuery,
+    manager: DialogManager,
+    group_id: int | None,
+    broadcast_service: BroadcastService,
+    notifier: TelegramNotifier,
+    app_config: AppConfig,
+) -> None:
+    target = _picked_schedule_date(manager)
+    day = await broadcast_service.day_schedule(target)
+    preview = schedule_preview(
+        day, target, app_config, group_id, is_compact=True
+    )
+    if preview is None:
+        await call.answer("❌ Нет расписания", show_alert=True)
+        return
+    await notifier.send_rich_to_creator(preview.markdown)
+    await call.answer()
 
 
 @inject
@@ -621,15 +699,23 @@ async def on_schedule_group_selected(
     notifier: FromDishka[TelegramNotifier],
     app_config: FromDishka[AppConfig],
 ) -> None:
-    group_id = None if item_id == "all" else int(item_id)
-    target = next_study_day(date.today())
-    day = await broadcast_service.day_schedule(target)
-    preview = schedule_preview(day, target, app_config, group_id)
-    if preview is None:
-        await call.answer("❌ Нет расписания", show_alert=True)
-        return
-    await notifier.send_rich_to_creator(preview.markdown)
-    await call.answer()
+    await _send_schedule_preview(
+        call, manager, int(item_id), broadcast_service, notifier, app_config
+    )
+
+
+@inject
+async def on_schedule_all_groups(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+    notifier: FromDishka[TelegramNotifier],
+    app_config: FromDishka[AppConfig],
+) -> None:
+    await _send_schedule_preview(
+        call, manager, None, broadcast_service, notifier, app_config
+    )
 
 
 async def _send_schedule_xlsx(
@@ -664,23 +750,13 @@ async def _send_schedule_xlsx(
 
 
 @inject
-async def on_xlsx_today(
+async def on_xlsx_selected(
     call: CallbackQuery,
     button: Button,
     manager: DialogManager,
     sheets_service: FromDishka[SheetsService],
 ) -> None:
-    await _send_schedule_xlsx(call, date.today(), sheets_service)
-
-
-@inject
-async def on_xlsx_tomorrow(
-    call: CallbackQuery,
-    button: Button,
-    manager: DialogManager,
-    sheets_service: FromDishka[SheetsService],
-) -> None:
-    await _send_schedule_xlsx(call, next_study_day(date.today()), sheets_service)
+    await _send_schedule_xlsx(call, _picked_schedule_date(manager), sheets_service)
 
 
 @inject
@@ -786,11 +862,15 @@ def build_admin_panel_dialog() -> Dialog:
                 "Выберите раздел:"
             ),
             SwitchTo(Const("👥 Пользователи"), id="sec_users", state=AdminPanelSG.users_list),
-            SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
-            SwitchTo(Const("🎓 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
+            Row(
+                SwitchTo(Const("📊 Таблицы"), id="sec_sheets", state=AdminPanelSG.sheets_list),
+                SwitchTo(Const("🎓 Группы"), id="sec_groups", state=AdminPanelSG.groups_list),
+            ),
             SwitchTo(Const("📅 Расписание"), id="sec_schedule", state=AdminPanelSG.schedule_view),
-            SwitchTo(Const("💬 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
-            SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
+            Row(
+                SwitchTo(Const("💬 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
+                SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
+            ),
             SwitchTo(Const("⚙️ Настройки"), id="sec_settings", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.main,
             getter=get_admin_main_data,
@@ -1045,6 +1125,19 @@ def build_admin_panel_dialog() -> Dialog:
             getter=get_setting_input_data,
         ),
         Window(
+            Const(
+                "<b>📅 Расписание</b>\n\n"
+                "Выберите дату:"
+            ),
+            Calendar(id="schedule_cal", on_click=on_schedule_date_selected),
+            Row(
+                Button(Const("📅 Сегодня"), id="sched_today", on_click=on_schedule_today),
+                Button(Const("📅 Завтра"), id="sched_tomorrow", on_click=on_schedule_tomorrow),
+            ),
+            SwitchTo(Const("◀️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
+            state=AdminPanelSG.schedule_view,
+        ),
+        Window(
             Format(
                 "<b>📅 Расписание</b>\n\n"
                 "<b>День:</b> {schedule_date}\n"
@@ -1067,11 +1160,14 @@ def build_admin_panel_dialog() -> Dialog:
                 when="has_schedule",
             ),
             Row(
-                Button(Const("📤 XLSX сегодня"), id="xlsx_today", on_click=on_xlsx_today),
-                Button(Const("📤 XLSX завтра"), id="xlsx_tomorrow", on_click=on_xlsx_tomorrow),
+                Button(
+                    Const("👥 Все группы"), id="sched_all_groups",
+                    on_click=on_schedule_all_groups, when="has_schedule",
+                ),
+                Button(Const("📤 XLSX"), id="xlsx_selected", on_click=on_xlsx_selected),
             ),
-            SwitchTo(Const("◀️ Назад"), id="back_main_sched", state=AdminPanelSG.main),
-            state=AdminPanelSG.schedule_view,
+            SwitchTo(Const("◀️ Назад"), id="back_to_calendar", state=AdminPanelSG.schedule_view),
+            state=AdminPanelSG.schedule_day,
             getter=get_schedule_view_data,
         ),
     )

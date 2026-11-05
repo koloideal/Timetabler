@@ -34,7 +34,9 @@ class TelegramScheduleSender(ScheduleSender):
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
         note: str | None = None, mode: str = "a",
     ) -> int | None:
-        content = group_content(day, for_date, group_id, mode, self.config)
+        content = group_content(
+            day, for_date, group_id, mode, self.config, is_compact=True
+        )
         if content is None:
             return None
         markdown, markup = content
@@ -57,7 +59,9 @@ class TelegramScheduleSender(ScheduleSender):
             message = await self.bot.send_rich_message(
                 chat_id=chat_id,
                 rich_message=InputRichMessage(
-                    html=self._with_note_html(channel_html(day, for_date, self.config), note)
+                    html=self._with_note_html(
+                        channel_html(day, for_date, self.config, is_compact=True), note
+                    )
                 ),
             )
             return message.message_id
@@ -75,7 +79,9 @@ class TelegramScheduleSender(ScheduleSender):
                 chat_id=chat_id,
                 message_id=message_id,
                 rich_message=InputRichMessage(
-                    html=self._with_note_html(channel_html(day, for_date, self.config), note)
+                    html=self._with_note_html(
+                        channel_html(day, for_date, self.config, is_compact=True), note
+                    )
                 ),
             )
             return True
@@ -86,7 +92,9 @@ class TelegramScheduleSender(ScheduleSender):
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
         note: str | None = None,
     ) -> ChatDelivery:
-        content = group_content(day, for_date, group_id, "a", self.config)
+        content = group_content(
+            day, for_date, group_id, "a", self.config, is_compact=True
+        )
         if content is None:
             return ChatDelivery()
         markdown, _ = content
