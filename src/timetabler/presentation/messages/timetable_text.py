@@ -68,7 +68,7 @@ def _full_entry_row(
 ) -> list[RichBlockTableCell]:
     return [
         _cell(RichTextBold(text=_position_label(entry))),
-        _cell(entry.subject, align="left"),
+        _cell(RichTextBold(text=entry.subject), align="left"),
         _cell(entry.audience or base_audience or "—"),
         _cell(_fmt_time(entry.starts_at, config.time_format)),
         _cell(entry.teacher or "—", align="left"),
@@ -81,7 +81,7 @@ def _compact_entry_rows(
     rows = [
         [
             _cell(RichTextBold(text=_position_label(entry))),
-            _cell(entry.subject, align="left"),
+            _cell(RichTextBold(text=entry.subject), align="left"),
             _cell(_details_text(entry.audience or base_audience, entry.starts_at, config)),
         ]
     ]
@@ -96,7 +96,7 @@ def _full_block_rows(
     rows = [
         [
             _cell(RichTextBold(text=_position_label(block[0]))),
-            _cell(block[0].subject, align="left"),
+            _cell(RichTextBold(text=block[0].subject), align="left"),
             _cell("—"),
             _cell("—"),
             _cell("—", align="left"),
@@ -121,7 +121,7 @@ def _compact_block_rows(
     rows = [
         [
             _cell(RichTextBold(text=_position_label(block[0]))),
-            _cell(block[0].subject, align="left"),
+            _cell(RichTextBold(text=block[0].subject), align="left"),
             _cell(""),
         ]
     ]
