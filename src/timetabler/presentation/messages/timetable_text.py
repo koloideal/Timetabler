@@ -3,7 +3,6 @@ from datetime import date, time
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    InputRichBlockBlockQuotation,
     InputRichBlockDetails,
     InputRichBlockDivider,
     InputRichBlockParagraph,
@@ -78,16 +77,16 @@ def _full_entry_row(
 def _compact_entry_rows(
     entry: TimetableEntry, base_audience: str | None, config: AppConfig
 ) -> list[list[RichBlockTableCell]]:
-    rows = [
+    subject: RichTextUnion = RichTextBold(text=entry.subject)
+    if entry.teacher:
+        subject = [RichTextBold(text=entry.subject), f". {entry.teacher}"]
+    return [
         [
             _cell(RichTextBold(text=_position_label(entry))),
-            _cell(RichTextBold(text=entry.subject), align="left"),
+            _cell(subject, align="left"),
             _cell(_details_text(entry.audience or base_audience, entry.starts_at, config)),
         ]
     ]
-    if entry.teacher:
-        rows.append([_cell(""), _cell(entry.teacher, align="left"), _cell("")])
-    return rows
 
 
 def _full_block_rows(
@@ -139,15 +138,18 @@ def _compact_block_rows(
     return rows
 
 
+def _text_len(text: RichTextUnion | None) -> int:
+    if isinstance(text, str):
+        return len(text)
+    if isinstance(text, list):
+        return sum(_text_len(item) for item in text)
+    if isinstance(text, RichTextBold) and isinstance(text.text, str):
+        return len(text.text)
+    return 0
+
+
 def _row_text_len(row: list[RichBlockTableCell]) -> int:
-    total = 0
-    for cell in row:
-        text = cell.text
-        if isinstance(text, str):
-            total += len(text)
-        elif isinstance(text, RichTextBold) and isinstance(text.text, str):
-            total += len(text.text)
-    return total
+    return sum(_text_len(cell.text) for cell in row)
 
 
 def _pair_blocks(
@@ -215,15 +217,7 @@ def format_group_schedule_body(
     mode: str = "a",
     is_compact: bool = False,
 ) -> list[InputRichBlockUnion]:
-    blocks: list[InputRichBlockUnion] = []
-    if base_audience:
-        blocks.append(
-            InputRichBlockBlockQuotation(
-                blocks=[InputRichBlockParagraph(text=f"сбор ауд. {base_audience}")]
-            )
-        )
-    blocks.append(schedule_table(entries, base_audience, config, mode, is_compact))
-    return blocks
+    return [schedule_table(entries, base_audience, config, mode, is_compact)]
 
 
 def format_group_schedule(
