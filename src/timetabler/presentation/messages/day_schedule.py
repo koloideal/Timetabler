@@ -86,6 +86,7 @@ def preview(
     for_date: date,
     config: AppConfig,
     group_id: int | None = None,
+    mode: str = "a",
     is_compact: bool = False,
 ) -> SchedulePreview | None:
     group_ids = [group_id] if group_id is not None else sorted(day.by_group)
@@ -95,7 +96,10 @@ def preview(
     return SchedulePreview(
         blocks=build_broadcast_blocks(
             for_date,
-            [_part(day, gid, config, is_compact=is_compact) for gid in group_ids],
+            [
+                _part(day, gid, config, mode, is_compact)
+                for gid in group_ids
+            ],
             config,
         ),
         groups=len(group_ids),

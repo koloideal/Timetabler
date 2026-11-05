@@ -32,7 +32,10 @@ from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
-from timetabler.presentation.messages import preview as schedule_preview
+from timetabler.presentation.messages import (
+    preview as schedule_preview,
+    subgroup_markup,
+)
 from timetabler.presentation.telegram import TelegramNotifier, TelegramScheduleSender
 
 
@@ -676,16 +679,24 @@ async def _send_schedule_preview(
     broadcast_service: BroadcastService,
     notifier: TelegramNotifier,
     app_config: AppConfig,
+    user_service: UserService,
 ) -> None:
     target = _picked_schedule_date(manager)
     day = await broadcast_service.day_schedule(target)
+    user = await user_service.get_by_id(call.from_user.id)
+    mode = user.subgroup_mode if user else "a"
     preview = schedule_preview(
-        day, target, app_config, group_id, is_compact=True
+        day, target, app_config, group_id, mode=mode, is_compact=True
     )
     if preview is None:
         await call.answer("❌ Нет расписания", show_alert=True)
         return
-    await notifier.send_rich_to_creator(preview.blocks)
+    markup = (
+        subgroup_markup(group_id, target, mode)
+        if group_id is not None and group_id in day.split
+        else None
+    )
+    await notifier.send_rich_to_creator(preview.blocks, markup)
     await call.answer()
 
 
@@ -698,9 +709,11 @@ async def on_schedule_group_selected(
     broadcast_service: FromDishka[BroadcastService],
     notifier: FromDishka[TelegramNotifier],
     app_config: FromDishka[AppConfig],
+    user_service: FromDishka[UserService],
 ) -> None:
     await _send_schedule_preview(
-        call, manager, int(item_id), broadcast_service, notifier, app_config
+        call, manager, int(item_id),
+        broadcast_service, notifier, app_config, user_service,
     )
 
 
@@ -712,9 +725,11 @@ async def on_schedule_all_groups(
     broadcast_service: FromDishka[BroadcastService],
     notifier: FromDishka[TelegramNotifier],
     app_config: FromDishka[AppConfig],
+    user_service: FromDishka[UserService],
 ) -> None:
     await _send_schedule_preview(
-        call, manager, None, broadcast_service, notifier, app_config
+        call, manager, None,
+        broadcast_service, notifier, app_config, user_service,
     )
 
 
