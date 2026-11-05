@@ -28,6 +28,12 @@ from timetabler.presentation.middlewares.check_ban import CheckBanMiddleware
 from timetabler.presentation.middlewares.reject_not_creator import RejectNotCreatorMiddleware
 
 
+class KeepaliveAiohttpSession(AiohttpSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self._connector_init["keepalive_timeout"] = 3600
+
+
 async def main() -> None:
     from timetabler.presentation.admin_dialogs import build_admin_panel_dialog
     from timetabler.presentation.admin_handlers import new_admin_router
@@ -48,7 +54,7 @@ async def main() -> None:
     bot: Bot = Bot(
         token=config.bot.token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-        session=AiohttpSession(),
+        session=KeepaliveAiohttpSession(),
     )
 
     container = make_async_container(
