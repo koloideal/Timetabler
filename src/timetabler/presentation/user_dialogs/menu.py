@@ -98,8 +98,8 @@ async def _show_schedule(
     if not messages:
         await call.answer("❌ Нет расписания за этот день", show_alert=True)
         return
-    for markdown, markup in messages:
-        await notifier.send_rich_message(call.from_user.id, markdown, markup)
+    for blocks, markup in messages:
+        await notifier.send_rich_message(call.from_user.id, blocks, markup)
     await call.answer()
 
 

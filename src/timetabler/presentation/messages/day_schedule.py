@@ -2,22 +2,22 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, InputRichBlockUnion
 
 from timetabler.domain.schemas import DaySchedule
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.presentation.messages.timetable_text import (
-    build_broadcast_message,
-    build_channel_html,
+    build_broadcast_blocks,
+    build_channel_blocks,
     format_group_schedule,
-    format_group_schedule_html,
+    format_group_schedule_body,
     subgroup_markup,
 )
 
 
 @dataclass
 class SchedulePreview:
-    markdown: str
+    blocks: list[InputRichBlockUnion]
     groups: int
     lessons: int
 
@@ -28,7 +28,7 @@ def _part(
     config: AppConfig,
     mode: str = "a",
     is_compact: bool = False,
-) -> str:
+) -> list[InputRichBlockUnion]:
     return format_group_schedule(
         day.labels[group_id],
         day.audiences.get(group_id),
@@ -46,7 +46,7 @@ def group_messages(
     config: AppConfig,
     mode: str = "a",
     is_compact: bool = False,
-) -> list[tuple[str, InlineKeyboardMarkup | None]]:
+) -> list[tuple[list[InputRichBlockUnion], InlineKeyboardMarkup | None]]:
     messages = []
     for g in groups:
         if not g.isdigit() or int(g) not in day.by_group:
@@ -54,7 +54,7 @@ def group_messages(
         group_id = int(g)
         markup = subgroup_markup(group_id, for_date, mode) if group_id in day.split else None
         messages.append((
-            build_broadcast_message(
+            build_broadcast_blocks(
                 for_date, [_part(day, group_id, config, mode, is_compact)], config
             ),
             markup,
@@ -69,16 +69,16 @@ def group_content(
     mode: str,
     config: AppConfig,
     is_compact: bool = False,
-) -> tuple[str, InlineKeyboardMarkup | None] | None:
+) -> tuple[list[InputRichBlockUnion], InlineKeyboardMarkup | None] | None:
     if group_id not in day.by_group:
         return None
-    markdown = build_broadcast_message(
+    blocks = build_broadcast_blocks(
         for_date, [_part(day, group_id, config, mode, is_compact)], config
     )
     markup = (
         subgroup_markup(group_id, for_date, mode) if group_id in day.split else None
     )
-    return markdown, markup
+    return blocks, markup
 
 
 def preview(
@@ -93,7 +93,7 @@ def preview(
     if not group_ids:
         return None
     return SchedulePreview(
-        markdown=build_broadcast_message(
+        blocks=build_broadcast_blocks(
             for_date,
             [_part(day, gid, config, is_compact=is_compact) for gid in group_ids],
             config,
@@ -103,20 +103,20 @@ def preview(
     )
 
 
-def channel_html(
+def channel_blocks(
     day: DaySchedule,
     for_date: date,
     config: AppConfig,
     is_compact: bool = False,
-) -> str:
+) -> list[InputRichBlockUnion]:
     parts = [
         (
             day.labels[gid],
-            format_group_schedule_html(
+            format_group_schedule_body(
                 day.audiences.get(gid), group_entries, config,
                 is_compact=is_compact,
             ),
         )
         for gid, group_entries in sorted(day.by_group.items())
     ]
-    return build_channel_html(for_date, parts, config)
+    return build_channel_blocks(for_date, parts, config)

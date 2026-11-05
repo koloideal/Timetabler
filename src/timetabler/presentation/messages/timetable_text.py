@@ -1,50 +1,33 @@
 from datetime import date, time
-from html import escape
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputRichBlockBlockQuotation,
+    InputRichBlockDetails,
+    InputRichBlockDivider,
+    InputRichBlockParagraph,
+    InputRichBlockSectionHeading,
+    InputRichBlockTable,
+    InputRichBlockUnion,
+    RichBlockTableCell,
+    RichTextBold,
+    RichTextItalic,
+    RichTextUnion,
+)
 
 from timetabler.domain.schemas import TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
-
-
-def _md(text: str) -> str:
-    for char in ("\\", "|", "*", "_", "~", "[", "]", "(", ")"):
-        text = text.replace(char, f"\\{char}")
-    return text
 
 
 def _fmt_time(starts_at: time | None, time_format: str) -> str:
     return f"⏰ с {starts_at.strftime(time_format)}" if starts_at else "—"
 
 
-def _cell(text: str | None) -> str:
-    return _md(text) if text else "—"
-
-
-def _position_label(entry: TimetableEntry) -> str:
-    return "–" if entry.position is None else str(entry.position)
-
-
-def _row(position: str, subject: str, audience: str | None,
-         starts_at: time | None, teacher: str | None, config: AppConfig) -> str:
-    pos = f"**{position}**" if position else ""
-    return (
-        f"| {pos} | {_cell(subject)} | {_cell(audience)} "
-        f"| {_fmt_time(starts_at, config.time_format)} | {_cell(teacher)} |"
-    )
-
-
-def _entry_row(entry: TimetableEntry, base_audience: str | None, config: AppConfig) -> str:
-    return _row(
-        _position_label(entry), entry.subject,
-        entry.audience or base_audience, entry.starts_at, entry.teacher, config,
-    )
-
-
-def _details_cell(audience: str | None, starts_at: time | None, config: AppConfig) -> str:
+def _details_text(audience: str | None, starts_at: time | None, config: AppConfig) -> str:
     parts = [
         p for p in (
-            _md(audience) if audience else None,
+            audience,
             starts_at.strftime(config.time_format) if starts_at else None,
         )
         if p
@@ -52,23 +35,119 @@ def _details_cell(audience: str | None, starts_at: time | None, config: AppConfi
     return " · ".join(parts) if parts else "—"
 
 
-def _crow(position: str, subject: str, details: str) -> str:
-    pos = f"**{position}**" if position else ""
-    return f"| {pos} | {_cell(subject)} | {details} |"
+def _position_label(entry: TimetableEntry) -> str:
+    return "–" if entry.position is None else str(entry.position)
 
 
-def _compact_entry_lines(
+def _cell(
+    text: RichTextUnion | None,
+    align: str = "center",
+    *,
+    header: bool = False,
+) -> RichBlockTableCell:
+    return RichBlockTableCell(
+        align=align,
+        valign="middle",
+        text=text,
+        is_header=True if header else None,
+    )
+
+
+def _header_cells(is_compact: bool) -> list[RichBlockTableCell]:
+    labels = (
+        ["№", "Предмет", "Ауд. · Время"]
+        if is_compact
+        else ["№", "Предмет", "Ауд.", "Время", "Преподаватель"]
+    )
+    aligns = ["center", "left", "center", "center", "left"]
+    return [_cell(label, align=align, header=True) for label, align in zip(labels, aligns)]
+
+
+def _full_entry_row(
     entry: TimetableEntry, base_audience: str | None, config: AppConfig
-) -> list[str]:
-    lines = [
-        _crow(
-            _position_label(entry), entry.subject,
-            _details_cell(entry.audience or base_audience, entry.starts_at, config),
-        )
+) -> list[RichBlockTableCell]:
+    return [
+        _cell(RichTextBold(text=_position_label(entry))),
+        _cell(entry.subject, align="left"),
+        _cell(entry.audience or base_audience or "—"),
+        _cell(_fmt_time(entry.starts_at, config.time_format)),
+        _cell(entry.teacher or "—", align="left"),
+    ]
+
+
+def _compact_entry_rows(
+    entry: TimetableEntry, base_audience: str | None, config: AppConfig
+) -> list[list[RichBlockTableCell]]:
+    rows = [
+        [
+            _cell(RichTextBold(text=_position_label(entry))),
+            _cell(entry.subject, align="left"),
+            _cell(_details_text(entry.audience or base_audience, entry.starts_at, config)),
+        ]
     ]
     if entry.teacher:
-        lines.append(f"|  | {_cell(entry.teacher)} |  |")
-    return lines
+        rows.append([_cell(""), _cell(entry.teacher, align="left"), _cell("")])
+    return rows
+
+
+def _full_block_rows(
+    block: list[TimetableEntry], base_audience: str | None, config: AppConfig
+) -> list[list[RichBlockTableCell]]:
+    rows = [
+        [
+            _cell(RichTextBold(text=_position_label(block[0]))),
+            _cell(block[0].subject, align="left"),
+            _cell("—"),
+            _cell("—"),
+            _cell("—", align="left"),
+        ]
+    ]
+    rows += [
+        [
+            _cell(""),
+            _cell(f"{e.subgroup} п/г", align="left"),
+            _cell(e.audience or base_audience or "—"),
+            _cell(_fmt_time(e.starts_at, config.time_format)),
+            _cell(e.teacher or "—", align="left"),
+        ]
+        for e in block
+    ]
+    return rows
+
+
+def _compact_block_rows(
+    block: list[TimetableEntry], base_audience: str | None, config: AppConfig
+) -> list[list[RichBlockTableCell]]:
+    rows = [
+        [
+            _cell(RichTextBold(text=_position_label(block[0]))),
+            _cell(block[0].subject, align="left"),
+            _cell(""),
+        ]
+    ]
+    rows += [
+        [
+            _cell(""),
+            _cell(
+                f"{e.subgroup} п/г" + (f" · {e.teacher}" if e.teacher else ""),
+                align="left",
+            ),
+            _cell(_details_text(e.audience or base_audience, e.starts_at, config)),
+        ]
+        for e in block
+    ]
+    return rows
+
+
+def _row_text_len(row: list[RichBlockTableCell]) -> int:
+    total = 0
+    for cell in row:
+        text = cell.text
+        if isinstance(text, str):
+            total += len(text)
+        elif isinstance(text, RichTextBold) and isinstance(text.text, str):
+            total += len(text.text)
+    return total
 
 
 def _pair_blocks(
@@ -91,6 +170,62 @@ def _pair_blocks(
     return blocks
 
 
+def schedule_table(
+    entries: list[TimetableEntry],
+    base_audience: str | None,
+    config: AppConfig,
+    mode: str = "a",
+    is_compact: bool = False,
+) -> InputRichBlockTable:
+    cells = [_header_cells(is_compact)]
+    ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
+
+    used = _row_text_len(cells[0])
+    for block in _pair_blocks(ordered, mode):
+        if is_compact:
+            block_rows = (
+                _compact_block_rows(block, base_audience, config)
+                if len(block) > 1
+                else _compact_entry_rows(block[0], base_audience, config)
+            )
+        else:
+            block_rows = (
+                _full_block_rows(block, base_audience, config)
+                if len(block) > 1
+                else [_full_entry_row(block[0], base_audience, config)]
+            )
+
+        used += sum(_row_text_len(row) for row in block_rows)
+        if used > config.rich_message_limit:
+            break
+        cells.extend(block_rows)
+
+    return InputRichBlockTable(
+        cells=cells,
+        is_bordered=True,
+        is_striped=True,
+        is_compact=True,
+    )
+
+
+def format_group_schedule_body(
+    base_audience: str | None,
+    entries: list[TimetableEntry],
+    config: AppConfig,
+    mode: str = "a",
+    is_compact: bool = False,
+) -> list[InputRichBlockUnion]:
+    blocks: list[InputRichBlockUnion] = []
+    if base_audience:
+        blocks.append(
+            InputRichBlockBlockQuotation(
+                blocks=[InputRichBlockParagraph(text=f"сбор ауд. {base_audience}")]
+            )
+        )
+    blocks.append(schedule_table(entries, base_audience, config, mode, is_compact))
+    return blocks
+
+
 def format_group_schedule(
     group_label: str,
     base_audience: str | None,
@@ -98,65 +233,57 @@ def format_group_schedule(
     config: AppConfig,
     mode: str = "a",
     is_compact: bool = False,
-) -> str:
-    lines = [f"### 🎓 Группа {_md(group_label)}"]
-    if base_audience:
-        lines.append(f"> сбор ауд. {_md(base_audience)}")
-
-    lines.append("")
-    if is_compact:
-        lines.append("| № | Предмет | Ауд. · Время |")
-        lines.append("|:-:|:--------|:------------:|")
-    else:
-        lines.append("| № | Предмет | Ауд. | Время | Преподаватель |")
-        lines.append("|:-:|:--------|:----:|:-----:|:--------------|")
-
-    ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
-
-    used = sum(len(line) + 1 for line in lines)
-    for block in _pair_blocks(ordered, mode):
-        if len(block) > 1:
-            if is_compact:
-                block_lines = [_crow(_position_label(block[0]), block[0].subject, "")]
-                block_lines += [
-                    _crow(
-                        "",
-                        f"{e.subgroup} п/г" + (f" · {e.teacher}" if e.teacher else ""),
-                        _details_cell(e.audience or base_audience, e.starts_at, config),
-                    )
-                    for e in block
-                ]
-            else:
-                block_lines = [
-                    _row(_position_label(block[0]), block[0].subject, None, None, None, config)
-                ]
-                block_lines += [
-                    _row("", f"{e.subgroup} п/г", e.audience or base_audience, e.starts_at, e.teacher, config)
-                    for e in block
-                ]
-        else:
-            if is_compact:
-                block_lines = _compact_entry_lines(block[0], base_audience, config)
-            else:
-                block_lines = [_entry_row(block[0], base_audience, config)]
-
-        used += sum(len(line) + 1 for line in block_lines)
-        if used > config.rich_message_limit:
-            break
-        lines.extend(block_lines)
-
-    return "\n".join(lines)
+) -> list[InputRichBlockUnion]:
+    return [
+        InputRichBlockSectionHeading(text=f"🎓 Группа {group_label}", size=3),
+        *format_group_schedule_body(base_audience, entries, config, mode, is_compact),
+    ]
 
 
-def build_broadcast_message(
+def build_broadcast_blocks(
     for_date: date,
-    parts: list[str],
+    parts: list[list[InputRichBlockUnion]],
     config: AppConfig,
-) -> str:
+) -> list[InputRichBlockUnion]:
     weekday = config.weekdays_short[for_date.weekday()]
-    header = f"**📅 Расписание на {for_date.strftime('%d.%m.%Y')} ({weekday})**"
-    body = "\n\n---\n\n".join(parts)
-    return f"{header}\n\n{body}" if body else header
+    blocks: list[InputRichBlockUnion] = [
+        InputRichBlockSectionHeading(
+            text=f"📅 Расписание на {for_date.strftime('%d.%m.%Y')} ({weekday})",
+            size=2,
+        ),
+    ]
+    for part in parts:
+        if not part:
+            continue
+        blocks.append(InputRichBlockDivider())
+        blocks.extend(part)
+    return blocks
+
+
+def build_channel_blocks(
+    for_date: date,
+    parts: list[tuple[str, list[InputRichBlockUnion]]],
+    config: AppConfig,
+) -> list[InputRichBlockUnion]:
+    weekday = config.weekdays_short[for_date.weekday()]
+    blocks: list[InputRichBlockUnion] = [
+        InputRichBlockSectionHeading(
+            text=f"📅 Расписание на {for_date.strftime('%d.%m.%Y')} ({weekday})",
+            size=2,
+        ),
+    ]
+    blocks += [
+        InputRichBlockDetails(summary=label, blocks=body, is_open=False)
+        for label, body in parts
+    ]
+    return blocks
+
+
+def note_blocks(note: str) -> list[InputRichBlockUnion]:
+    return [
+        InputRichBlockDivider(),
+        InputRichBlockParagraph(text=[RichTextItalic(text=f"🔄 {note}")]),
+    ]
 
 
 def subgroup_callback(group_id: int, for_date: date, mode: str) -> str:
@@ -187,112 +314,3 @@ def subgroup_markup_mode(markup: InlineKeyboardMarkup | None) -> str | None:
             if button.text.startswith("🔘") and button.callback_data:
                 return button.callback_data.rsplit(":", 1)[-1]
     return None
-
-
-def _hrow(
-    position: str, subject: str, audience: str | None,
-    starts_at: time | None, teacher: str | None, config: AppConfig,
-) -> str:
-    pos = f"<b>{escape(position)}</b>" if position else ""
-    aud = escape(audience) if audience else "—"
-    t = _fmt_time(starts_at, config.time_format)
-    return (
-        f"<tr><td>{pos}</td><td>{escape(subject)}</td><td>{aud}</td>"
-        f"<td>{escape(t)}</td><td>{escape(teacher) if teacher else '—'}</td></tr>"
-    )
-
-
-def _hdetails(audience: str | None, starts_at: time | None, config: AppConfig) -> str:
-    parts = [
-        p for p in (
-            escape(audience) if audience else None,
-            starts_at.strftime(config.time_format) if starts_at else None,
-        )
-        if p
-    ]
-    return " · ".join(parts) if parts else "—"
-
-
-def _hcrow(position: str, subject: str, details: str) -> str:
-    pos = f"<b>{escape(position)}</b>" if position else ""
-    return f"<tr><td>{pos}</td><td>{escape(subject)}</td><td>{details}</td></tr>"
-
-
-def _compact_hentry_rows(
-    entry: TimetableEntry, base_audience: str | None, config: AppConfig
-) -> list[str]:
-    rows = [
-        _hcrow(
-            _position_label(entry), entry.subject,
-            _hdetails(entry.audience or base_audience, entry.starts_at, config),
-        )
-    ]
-    if entry.teacher:
-        rows.append(f"<tr><td></td><td>{escape(entry.teacher)}</td><td></td></tr>")
-    return rows
-
-
-def format_group_schedule_html(
-    base_audience: str | None,
-    entries: list[TimetableEntry],
-    config: AppConfig,
-    mode: str = "a",
-    is_compact: bool = False,
-) -> str:
-    parts: list[str] = []
-    if base_audience:
-        parts.append(f"<blockquote>сбор ауд. {escape(base_audience)}</blockquote>")
-    if is_compact:
-        parts.append("<table><tr><th>№</th><th>Предмет</th><th>Ауд. · Время</th></tr>")
-    else:
-        parts.append(
-            "<table><tr><th>№</th><th>Предмет</th><th>Ауд.</th><th>Время</th><th>Преподаватель</th></tr>"
-        )
-
-    ordered = sorted(entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0))
-    for block in _pair_blocks(ordered, mode):
-        if len(block) > 1:
-            if is_compact:
-                parts.append(_hcrow(_position_label(block[0]), block[0].subject, ""))
-                parts += [
-                    _hcrow(
-                        "",
-                        f"{e.subgroup} п/г" + (f" · {e.teacher}" if e.teacher else ""),
-                        _hdetails(e.audience or base_audience, e.starts_at, config),
-                    )
-                    for e in block
-                ]
-            else:
-                parts.append(
-                    _hrow(_position_label(block[0]), block[0].subject, None, None, None, config)
-                )
-                parts += [
-                    _hrow("", f"{e.subgroup} п/г", e.audience or base_audience, e.starts_at, e.teacher, config)
-                    for e in block
-                ]
-        else:
-            if is_compact:
-                parts.extend(_compact_hentry_rows(block[0], base_audience, config))
-            else:
-                entry = block[0]
-                parts.append(
-                    _hrow(
-                        _position_label(entry), entry.subject,
-                        entry.audience or base_audience, entry.starts_at, entry.teacher, config,
-                    )
-                )
-
-    parts.append("</table>")
-    return "".join(parts)
-
-
-def build_channel_html(
-    for_date: date,
-    parts: list[tuple[str, str]],
-    config: AppConfig,
-) -> str:
-    weekday = config.weekdays_short[for_date.weekday()]
-    out = [f"<h3>📅 Расписание на {for_date.strftime('%d.%m.%Y')} ({weekday})</h3>"]
-    for label, body in parts:
-        out.append(f"<details><summary>{escape(label)}</summary>{body}</details>")
-    return "".join(out)

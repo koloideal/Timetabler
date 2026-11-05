@@ -7,6 +7,7 @@ from aiogram.types import (
     BotCommandScopeChat,
     BotCommandScopeDefault,
     InlineKeyboardMarkup,
+    InputRichBlockUnion,
     InputRichMessage,
 )
 
@@ -55,18 +56,28 @@ class TelegramNotifier(CreatorNotifier):
             self._logger.warning("Cannot notify creator %s: bot is blocked", self.config.bot.creator_id)
 
     async def send_rich_message(
-        self, chat_id: int, markdown: str, reply_markup: InlineKeyboardMarkup | None = None
+        self,
+        chat_id: int,
+        content: str | list[InputRichBlockUnion],
+        reply_markup: InlineKeyboardMarkup | None = None,
     ) -> None:
+        rich_message = (
+            InputRichMessage(markdown=content)
+            if isinstance(content, str)
+            else InputRichMessage(blocks=content)
+        )
         await self.bot.send_rich_message(
             chat_id=chat_id,
-            rich_message=InputRichMessage(markdown=markdown),
+            rich_message=rich_message,
             reply_markup=reply_markup,
         )
 
     async def send_rich_to_creator(
-        self, markdown: str, reply_markup: InlineKeyboardMarkup | None = None
+        self,
+        content: str | list[InputRichBlockUnion],
+        reply_markup: InlineKeyboardMarkup | None = None,
     ) -> None:
-        await self.send_rich_message(self.config.bot.creator_id, markdown, reply_markup)
+        await self.send_rich_message(self.config.bot.creator_id, content, reply_markup)
 
     async def ask_revision_approval(self, revision: Revision) -> None:
         await self.send_rich_to_creator(

@@ -114,9 +114,9 @@ def new_user_router() -> Router:
         if content is None or not isinstance(call.message, Message):
             await call.answer("❌ Нет расписания за этот день", show_alert=True)
             return
-        markdown, markup = content
+        blocks, markup = content
         await call.message.edit_text(
-            rich_message=InputRichMessage(markdown=markdown),
+            rich_message=InputRichMessage(blocks=blocks),
             reply_markup=markup,
         )
         await user_service.set_subgroup_mode(call.from_user.id, mode)

@@ -8,12 +8,16 @@ from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramMigrateToChat,
 )
-from aiogram.types import InputRichMessage
+from aiogram.types import InputRichBlockUnion, InputRichMessage
 
 from timetabler.application.ports import ChatDelivery, ScheduleSender
 from timetabler.domain.schemas import DaySchedule
 from timetabler.infrastructure.config.app import AppConfig
-from timetabler.presentation.messages import channel_html, group_content
+from timetabler.presentation.messages import (
+    channel_blocks,
+    group_content,
+    note_blocks,
+)
 
 
 class TelegramScheduleSender(ScheduleSender):
@@ -23,12 +27,10 @@ class TelegramScheduleSender(ScheduleSender):
         self._logger = logging.getLogger(__name__)
 
     @staticmethod
-    def _with_note(markdown: str, note: str | None) -> str:
-        return f"{markdown}\n\n---\n\n🔄 *{note}*" if note else markdown
-
-    @staticmethod
-    def _with_note_html(html: str, note: str | None) -> str:
-        return f"{html}<p>🔄 <i>{note}</i></p>" if note else html
+    def _with_note(
+        blocks: list[InputRichBlockUnion], note: str | None
+    ) -> list[InputRichBlockUnion]:
+        return blocks + note_blocks(note) if note else blocks
 
     async def send_group_schedule(
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
@@ -39,11 +41,11 @@ class TelegramScheduleSender(ScheduleSender):
         )
         if content is None:
             return None
-        markdown, markup = content
+        blocks, markup = content
         try:
             message = await self.bot.send_rich_message(
                 chat_id=chat_id,
-                rich_message=InputRichMessage(markdown=self._with_note(markdown, note)),
+                rich_message=InputRichMessage(blocks=self._with_note(blocks, note)),
                 reply_markup=markup,
             )
             return message.message_id
@@ -59,8 +61,8 @@ class TelegramScheduleSender(ScheduleSender):
             message = await self.bot.send_rich_message(
                 chat_id=chat_id,
                 rich_message=InputRichMessage(
-                    html=self._with_note_html(
-                        channel_html(day, for_date, self.config, is_compact=True), note
+                    blocks=self._with_note(
+                        channel_blocks(day, for_date, self.config, is_compact=True), note
                     )
                 ),
             )
@@ -79,8 +81,8 @@ class TelegramScheduleSender(ScheduleSender):
                 chat_id=chat_id,
                 message_id=message_id,
                 rich_message=InputRichMessage(
-                    html=self._with_note_html(
-                        channel_html(day, for_date, self.config, is_compact=True), note
+                    blocks=self._with_note(
+                        channel_blocks(day, for_date, self.config, is_compact=True), note
                     )
                 ),
             )
@@ -97,11 +99,11 @@ class TelegramScheduleSender(ScheduleSender):
         )
         if content is None:
             return ChatDelivery()
-        markdown, _ = content
+        blocks, _ = content
         try:
             message = await self.bot.send_rich_message(
                 chat_id=chat_id,
-                rich_message=InputRichMessage(markdown=self._with_note(markdown, note)),
+                rich_message=InputRichMessage(blocks=self._with_note(blocks, note)),
             )
             return ChatDelivery(message_id=message.message_id)
         except TelegramMigrateToChat as e:

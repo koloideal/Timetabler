@@ -685,7 +685,7 @@ async def _send_schedule_preview(
     if preview is None:
         await call.answer("❌ Нет расписания", show_alert=True)
         return
-    await notifier.send_rich_to_creator(preview.markdown)
+    await notifier.send_rich_to_creator(preview.blocks)
     await call.answer()
 
 
