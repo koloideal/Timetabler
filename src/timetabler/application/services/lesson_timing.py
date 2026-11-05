@@ -46,9 +46,13 @@ class LessonTimingResolver:
             out += self._resolve_group(group_id, for_date, entries, slots)
         return out
 
-    def _is_pe(self, subject: str) -> bool:
+    def _kind(self, subject: str) -> str:
         low = subject.lower()
-        return any(marker in low for marker in self.config.pe_markers)
+        if any(marker in low for marker in self.config.pe_markers):
+            return "pe"
+        if any(marker in low for marker in self.config.kur_markers):
+            return "kur"
+        return "lesson"
 
     def _half_len(self, weekday: int, slot: LessonSlotConfig) -> int:
         half_len = self.config.half_len[weekday]
@@ -95,10 +99,17 @@ class LessonTimingResolver:
         lessons.sort(key=lambda l: (l.start is None, l.start or 0))
         by_slot: dict[int, list[ResolvedLesson]] = {}
         for l in lessons:
-            if l.slot is not None:
+            if l.slot is not None and l.start is not None and l.end is not None:
                 by_slot.setdefault(l.slot, []).append(l)
         for slot, group in by_slot.items():
-            if len(group) > 1:
+            conflicted = any(
+                a.start is not None and a.end is not None
+                and b.start is not None and b.end is not None
+                and a.start < b.end and b.start < a.end
+                for i, a in enumerate(group)
+                for b in group[i + 1:]
+            )
+            if conflicted:
                 self._logger.warning(
                     "Slot conflict: group %s %s slot %s — %d lessons",
                     group_id, subgroup, slot, len(group),
@@ -121,29 +132,30 @@ class LessonTimingResolver:
         assert entry.starts_at is not None
         weekday = for_date.weekday()
         t = entry.starts_at.hour * 3600 + entry.starts_at.minute * 60 + entry.starts_at.second
-        is_pe = self._is_pe(entry.subject)
+        kind = self._kind(entry.subject)
+        is_half = kind != "lesson"
         for i, slot in enumerate(slots):
             slot_start, slot_end = _slot_seconds(slot)
             half_b = parse_time(slot.half_b_start) if slot.half_b_start else None
             if t == slot_start or (half_b is not None and t == half_b):
                 occupied.add(i)
-                if is_pe:
+                if is_half:
                     return self._lesson(
-                        group_id, for_date, subgroup, entry, "pe",
+                        group_id, for_date, subgroup, entry, kind,
                         i + 1, "a" if t == slot_start else "b",
                         t, t + self._half_len(weekday, slot), frozenset(),
                     )
                 return self._lesson(
-                    group_id, for_date, subgroup, entry, "lesson",
+                    group_id, for_date, subgroup, entry, kind,
                     i + 1, "full", slot_start, slot_end, frozenset(),
                 )
         nominal = slots[entry.position - 1] if entry.position and entry.position <= len(slots) else (slots[-1] if slots else None)
-        dur = self._half_len(weekday, nominal) if is_pe and nominal else (
+        dur = self._half_len(weekday, nominal) if is_half and nominal else (
             (_slot_seconds(nominal)[1] - _slot_seconds(nominal)[0]) if nominal else 0
         )
         return self._lesson(
-            group_id, for_date, subgroup, entry, "pe" if is_pe else "lesson",
-            None, "a" if is_pe else "full", t, t + dur, frozenset({"off_grid"}),
+            group_id, for_date, subgroup, entry, kind,
+            None, "a" if is_half else "full", t, t + dur, frozenset({"off_grid"}),
         )
 
     def _untimed(
@@ -159,11 +171,12 @@ class LessonTimingResolver:
         s = nominal if nominal >= 0 else 0
         while s < len(slots) and s in occupied:
             s += 1
+        kind = self._kind(entry.subject)
         flags: set[str] = set()
         if s >= len(slots) or nominal < 0:
             flags.add("no_slot")
             return self._lesson(
-                group_id, for_date, subgroup, entry, "lesson",
+                group_id, for_date, subgroup, entry, kind,
                 None, "full", None, None, frozenset(flags),
             )
         if s != nominal:
@@ -171,7 +184,7 @@ class LessonTimingResolver:
         occupied.add(s)
         start, end = _slot_seconds(slots[s])
         return self._lesson(
-            group_id, for_date, subgroup, entry, "lesson",
+            group_id, for_date, subgroup, entry, kind,
             s + 1, "full", start, end, frozenset(flags),
         )
 

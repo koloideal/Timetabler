@@ -20,16 +20,14 @@ from timetabler.domain.schemas import ResolvedLesson
 from timetabler.infrastructure.config.app import AppConfig
 
 
-def _details_text(lesson: ResolvedLesson, base_audience: str | None) -> str:
-    parts = [
-        p
-        for p in (
-            lesson.audience or base_audience,
-            format_range(lesson.start, lesson.end) if lesson.start is not None else None,
-        )
-        if p
-    ]
-    return " · ".join(parts) if parts else "—"
+def _details_text(lesson: ResolvedLesson, base_audience: str | None) -> RichTextUnion:
+    aud = lesson.audience or base_audience
+    rng = format_range(lesson.start, lesson.end) if lesson.start is not None else None
+    if aud and rng:
+        return [f"{aud} · ", RichTextItalic(text=rng)]
+    if rng:
+        return RichTextItalic(text=rng)
+    return aud or "—"
 
 
 def _cell(
@@ -98,7 +96,7 @@ def _lesson_row(
         _cell(RichTextBold(text=label) if label else ""),
         _cell(subject, align="left"),
         _cell(lesson.audience or base_audience or "—"),
-        _cell(format_range(lesson.start, lesson.end)),
+        _cell(RichTextItalic(text=format_range(lesson.start, lesson.end))),
         _cell(lesson.teacher or "—", align="left"),
     ]
 
@@ -109,7 +107,13 @@ def _display_rows(
     if mode != "a":
         sub = int(mode)
         return [
-            (str(l.ordinal), l, "normal")
+            (
+                str(l.slot)
+                if l.slot is not None
+                else ("–" if l.position is None else str(l.position)),
+                l,
+                "normal",
+            )
             for l in sorted(
                 (l for l in lessons if l.subgroup in (sub, None)),
                 key=lambda l: l.ordinal,

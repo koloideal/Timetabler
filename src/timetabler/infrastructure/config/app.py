@@ -81,7 +81,8 @@ _SATURDAY_SLOTS: tuple[LessonSlotConfig, ...] = (
 
 @dataclass(frozen=True)
 class LessonTimingConfig:
-    pe_markers: tuple[str, ...] = ("физическая культура",)
+    pe_markers: tuple[str, ...] = ("физическая культура", "физическая культура и здоровье")
+    kur_markers: tuple[str, ...] = ("кураторск", "кур. час", "кур час")
     half_len: tuple[int | None, ...] = (2700, 2700, 2700, 2700, 2700, None, None)
     weekday_slots: tuple[tuple[LessonSlotConfig, ...], ...] = (
         _WEEKDAY_SLOTS,
