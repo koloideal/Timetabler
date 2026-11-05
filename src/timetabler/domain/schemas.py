@@ -61,6 +61,26 @@ class TimetableEntry:
 class ParsedTimetable:
     entries: list[TimetableEntry] = field(default_factory=list)
     base_audiences: dict[int, str] = field(default_factory=dict)
+    resolved: list["ResolvedLesson"] = field(default_factory=list)
+
+
+@dataclass
+class ResolvedLesson:
+    group_id: int
+    date: date
+    position: int | None
+    subgroup: int | None
+    ordinal: int
+    slot: int | None
+    half: str
+    start: int | None
+    end: int | None
+    kind: str
+    subject: str
+    teacher: str | None
+    audience: str | None
+    flags: frozenset[str]
+    source_time: time | None
 
 
 @dataclass
@@ -115,7 +135,7 @@ class SheetSource:
 
 @dataclass
 class DaySchedule:
-    by_group: dict[int, list[TimetableEntry]]
+    by_group: dict[int, list[ResolvedLesson]]
     audiences: dict[int, str]
     labels: dict[int, str]
     split: set[int]

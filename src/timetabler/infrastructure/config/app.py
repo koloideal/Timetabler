@@ -59,6 +59,42 @@ class SheetsSettingsConfig:
 
 
 @dataclass(frozen=True)
+class LessonSlotConfig:
+    start: str
+    end: str
+    half_b_start: str | None = None
+
+
+_WEEKDAY_SLOTS: tuple[LessonSlotConfig, ...] = (
+    LessonSlotConfig("09:00", "10:35", "09:50"),
+    LessonSlotConfig("10:45", "12:20", "11:35"),
+    LessonSlotConfig("13:20", "14:55", "14:10"),
+    LessonSlotConfig("15:05", "16:40", "15:55"),
+    LessonSlotConfig("16:50", "18:25", "17:40"),
+)
+_SATURDAY_SLOTS: tuple[LessonSlotConfig, ...] = (
+    LessonSlotConfig("09:00", "10:25"),
+    LessonSlotConfig("10:35", "12:00"),
+    LessonSlotConfig("12:10", "13:35"),
+)
+
+
+@dataclass(frozen=True)
+class LessonTimingConfig:
+    pe_markers: tuple[str, ...] = ("физическая культура",)
+    half_len: tuple[int | None, ...] = (2700, 2700, 2700, 2700, 2700, None, None)
+    weekday_slots: tuple[tuple[LessonSlotConfig, ...], ...] = (
+        _WEEKDAY_SLOTS,
+        _WEEKDAY_SLOTS,
+        _WEEKDAY_SLOTS,
+        _WEEKDAY_SLOTS,
+        _WEEKDAY_SLOTS,
+        _SATURDAY_SLOTS,
+        (),
+    )
+
+
+@dataclass(frozen=True)
 class RevisionsConfig:
     stable_polls: int = 2
     max_settle_seconds: int = 1200
@@ -90,6 +126,7 @@ class AppConfig:
     sheets_client: SheetsClientConfig = field(default_factory=SheetsClientConfig)
     sheets_settings: SheetsSettingsConfig = field(default_factory=SheetsSettingsConfig)
     revisions: RevisionsConfig = field(default_factory=RevisionsConfig)
+    lesson_timing: LessonTimingConfig = field(default_factory=LessonTimingConfig)
     user_help: str = (
         "<b>ℹ️ Справка</b>\n\n"
         "Я присылаю расписание пар: в личку по вашим подпискам "

@@ -9,6 +9,7 @@ from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.detection import DetectionService
 from timetabler.application.services.group_chat import GroupChatService
+from timetabler.application.services.lesson_timing import LessonTimingResolver
 from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
@@ -16,6 +17,7 @@ from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import (
     AppConfig,
+    LessonTimingConfig,
     RevisionsConfig,
     SheetsClientConfig,
     SheetsSettingsConfig,
@@ -154,6 +156,12 @@ class ServicesProvider(Provider):
         )
 
     @provide
+    def get_lesson_timing_resolver(
+        self, config: LessonTimingConfig
+    ) -> LessonTimingResolver:
+        return LessonTimingResolver(config)
+
+    @provide
     def get_detection_service(
         self,
         sheets_client: GoogleSheetsClient,
@@ -163,10 +171,11 @@ class ServicesProvider(Provider):
         revision_service: RevisionService,
         notifier: CreatorNotifier,
         revisions_config: RevisionsConfig,
+        timing: LessonTimingResolver,
     ) -> DetectionService:
         return DetectionService(
             sheets_client, parser, settings_service, sheets_service,
-            revision_service, notifier, revisions_config,
+            revision_service, notifier, revisions_config, timing,
         )
 
 
@@ -228,3 +237,7 @@ class AppConfigProvider(Provider):
     @provide(scope=Scope.APP)
     def get_revisions_config(self, app_config: AppConfig) -> RevisionsConfig:
         return app_config.revisions
+
+    @provide(scope=Scope.APP)
+    def get_lesson_timing_config(self, app_config: AppConfig) -> LessonTimingConfig:
+        return app_config.lesson_timing

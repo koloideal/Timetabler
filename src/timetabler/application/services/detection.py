@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 import orjson
 
 from timetabler.application.ports import CreatorNotifier, ScheduleParser
+from timetabler.application.services.lesson_timing import LessonTimingResolver, format_range
 from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
@@ -33,10 +34,12 @@ def _grid_hash(values: list[list[object]]) -> str:
     return hashlib.sha256(orjson.dumps(_normalize_grid(values))).hexdigest()
 
 
-def _group_hash(entries: list[TimetableEntry]) -> str:
+def _group_hash(entries: list) -> str:
     rows = [
-        [e.position, e.subject, e.teacher, e.audience,
-         e.starts_at.isoformat() if e.starts_at else None, e.subgroup]
+        [getattr(e, "ordinal", None), e.position, e.subgroup,
+         getattr(e, "slot", None), getattr(e, "half", None),
+         getattr(e, "start", None), getattr(e, "end", None),
+         e.subject, e.teacher, e.audience]
         for e in sorted(
             entries, key=lambda e: (e.position is None, e.position or 0, e.subgroup or 0)
         )
@@ -44,22 +47,25 @@ def _group_hash(entries: list[TimetableEntry]) -> str:
     return hashlib.sha256(orjson.dumps(rows)).hexdigest()
 
 
-def _entry_key(entry: TimetableEntry) -> tuple:
+def _entry_key(entry) -> tuple:
     return (entry.position, entry.subgroup)
 
 
-def _entry_changes(old: TimetableEntry, new: TimetableEntry) -> list[str]:
+def _entry_changes(old, new) -> list[str]:
     changes = []
     for field, label in (
         ("subject", "предмет"),
         ("teacher", "препод"),
         ("audience", "ауд."),
-        ("starts_at", "время"),
     ):
         old_v = getattr(old, field)
         new_v = getattr(new, field)
         if old_v != new_v:
             changes.append(f"{label} {old_v or '—'} → {new_v or '—'}")
+    old_t = format_range(getattr(old, "start", None), getattr(old, "end", None))
+    new_t = format_range(getattr(new, "start", None), getattr(new, "end", None))
+    if old_t != new_t:
+        changes.append(f"время {old_t} → {new_t}")
     return changes
 
 
@@ -71,15 +77,15 @@ def _pos_label(entry: TimetableEntry) -> str:
 
 
 def compute_diff(
-    old_entries: list[TimetableEntry],
+    old_entries: list,
     old_audiences: dict[int, str],
     parsed: ParsedTimetable,
 ) -> tuple[list[int], dict[int, list[str]]]:
-    old_by_group: dict[int, list[TimetableEntry]] = {}
+    old_by_group: dict[int, list] = {}
     for e in old_entries:
         old_by_group.setdefault(e.group_id, []).append(e)
-    new_by_group: dict[int, list[TimetableEntry]] = {}
-    for e in parsed.entries:
+    new_by_group: dict[int, list] = {}
+    for e in parsed.resolved or parsed.entries:
         new_by_group.setdefault(e.group_id, []).append(e)
 
     diff: dict[int, list[str]] = {}
@@ -123,6 +129,7 @@ class DetectionService:
         revision_service: RevisionService,
         notifier: CreatorNotifier,
         config: RevisionsConfig,
+        timing: LessonTimingResolver,
     ) -> None:
         self.sheets_client = sheets_client
         self.parser = parser
@@ -131,6 +138,7 @@ class DetectionService:
         self.revision_service = revision_service
         self.notifier = notifier
         self.config = config
+        self.timing = timing
         self._logger = logging.getLogger(__name__)
         self._insane_hashes: set[str] = set()
 
@@ -168,6 +176,7 @@ class DetectionService:
 
         marker = await self._read_marker(source.spreadsheet_id, settings.date_cell)
         parsed = self.parser.parse(values, default_date=for_date)
+        parsed.resolved = self.timing.resolve(parsed, for_date)
         parent_entries = (
             await self.revision_service.get_entries(published.id) if published else []
         )
@@ -196,7 +205,7 @@ class DetectionService:
         marker: str,
         content_hash: str,
         published: Revision | None,
-        parent_entries: list[TimetableEntry],
+        parent_entries: list,
     ) -> Revision | None:
         kind = "new" if published is None or marker != published.header else "edit"
         if kind == "edit":
@@ -234,7 +243,7 @@ class DetectionService:
         marker: str,
         content_hash: str,
         published: Revision | None,
-        parent_entries: list[TimetableEntry],
+        parent_entries: list,
     ) -> Revision | None:
         kind = "new" if published is None or marker != published.header else "edit"
         if kind == "edit":
@@ -290,7 +299,7 @@ class DetectionService:
         return await self.revision_service.set_status(revision.id, "approved")
 
     def _is_sane(
-        self, parsed: ParsedTimetable, parent_entries: list[TimetableEntry]
+        self, parsed: ParsedTimetable, parent_entries: list
     ) -> bool:
         if not parsed.entries:
             return False
@@ -302,7 +311,7 @@ class DetectionService:
 
     @staticmethod
     def _group_hashes(parsed: ParsedTimetable) -> dict[int, str]:
-        by_group: dict[int, list[TimetableEntry]] = {}
+        by_group: dict[int, list] = {}
         for e in parsed.entries:
             by_group.setdefault(e.group_id, []).append(e)
         return {g: _group_hash(entries) for g, entries in by_group.items()}

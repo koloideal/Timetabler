@@ -10,7 +10,7 @@ from timetabler.domain.schemas import (
     DaySchedule,
     GroupChat,
     Revision,
-    TimetableEntry,
+    ResolvedLesson,
 )
 from timetabler.infrastructure.config.app import RevisionsConfig
 from timetabler.infrastructure.database.dao import (
@@ -55,13 +55,13 @@ class BroadcastService:
         self._logger = logging.getLogger(__name__)
 
     async def _build_day(
-        self, entries: list[TimetableEntry], base_audiences: dict[int, str]
+        self, entries: list[ResolvedLesson], base_audiences: dict[int, str]
     ) -> DaySchedule:
         aliases = {
             g.group_id: g.alias for g in await self.study_groups_dao.get_all()
         }
 
-        by_group: dict[int, list[TimetableEntry]] = {}
+        by_group: dict[int, list[ResolvedLesson]] = {}
         for entry in entries:
             by_group.setdefault(entry.group_id, []).append(entry)
 

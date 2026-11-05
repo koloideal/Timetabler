@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from timetabler.domain.schemas import ParsedTimetable, Revision, TimetableEntry
+from timetabler.domain.schemas import ParsedTimetable, ResolvedLesson, Revision
 from timetabler.infrastructure.database.models import (
     TimetableRevision as OrmRevision,
 )
@@ -97,7 +97,7 @@ class RevisionsDAO:
         self.session.add(orm_rev)
         await self.session.flush()
 
-        self._insert_entries(orm_rev.id, parsed.entries)
+        self._insert_entries(orm_rev.id, parsed.resolved or parsed.entries)
         await self.session.flush()
 
         return self._map_to_domain(orm_rev)
@@ -140,7 +140,7 @@ class RevisionsDAO:
         await self.session.execute(
             delete(OrmEntry).where(OrmEntry.revision_id == revision_id)
         )
-        self._insert_entries(revision_id, parsed.entries)
+        self._insert_entries(revision_id, parsed.resolved or parsed.entries)
         await self.session.flush()
 
         return self._map_to_domain(orm_rev)
@@ -175,26 +175,33 @@ class RevisionsDAO:
 
         return self._map_to_domain(orm_rev)
 
-    async def get_entries(self, revision_id: int) -> list[TimetableEntry]:
+    async def get_entries(self, revision_id: int) -> list[ResolvedLesson]:
         rev = await self.get_by_id(revision_id)
         if not rev:
             return []
         query = (
             select(OrmEntry)
             .where(OrmEntry.revision_id == revision_id)
-            .order_by(OrmEntry.study_group_id, OrmEntry.position, OrmEntry.subgroup)
+            .order_by(OrmEntry.study_group_id, OrmEntry.ordinal, OrmEntry.position)
         )
         result = await self.session.execute(query)
         return [
-            TimetableEntry(
+            ResolvedLesson(
                 group_id=e.study_group_id,
                 date=rev.for_date,
                 position=e.position,
+                subgroup=e.subgroup,
+                ordinal=e.ordinal or 0,
+                slot=e.slot,
+                half=e.half or "full",
+                start=e.start_sec,
+                end=e.end_sec,
+                kind=e.kind or "lesson",
                 subject=e.subject,
                 teacher=e.teacher,
                 audience=e.audience,
-                starts_at=e.starts_at,
-                subgroup=e.subgroup,
+                flags=frozenset(e.flags or []),
+                source_time=e.starts_at,
             )
             for e in result.scalars().all()
         ]
@@ -222,7 +229,7 @@ class RevisionsDAO:
         result = await self.session.execute(stmt)
         return result.rowcount > 0
 
-    def _insert_entries(self, revision_id: int, entries: list[TimetableEntry]) -> None:
+    def _insert_entries(self, revision_id: int, entries: list) -> None:
         for entry in entries:
             self.session.add(
                 OrmEntry(
@@ -232,8 +239,15 @@ class RevisionsDAO:
                     subject=entry.subject,
                     teacher=entry.teacher,
                     audience=entry.audience,
-                    starts_at=entry.starts_at,
+                    starts_at=getattr(entry, "source_time", getattr(entry, "starts_at", None)),
                     subgroup=entry.subgroup,
+                    ordinal=getattr(entry, "ordinal", None),
+                    slot=getattr(entry, "slot", None),
+                    half=getattr(entry, "half", None),
+                    start_sec=getattr(entry, "start", None),
+                    end_sec=getattr(entry, "end", None),
+                    kind=getattr(entry, "kind", None),
+                    flags=sorted(getattr(entry, "flags", ()) or ()),
                 )
             )
 

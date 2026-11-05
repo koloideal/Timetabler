@@ -57,6 +57,13 @@ class TimetableRevisionEntry(Base):
     audience: Mapped[str | None] = mapped_column(String, nullable=True)
     starts_at: Mapped[time | None] = mapped_column(Time, nullable=True)
     subgroup: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    ordinal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    slot: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    half: Mapped[str | None] = mapped_column(String, nullable=True)
+    start_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str | None] = mapped_column(String, nullable=True)
+    flags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
 
     def __repr__(self) -> str:
         return f"<TimetableRevisionEntry(revision={self.revision_id}, group={self.study_group_id}, pos={self.position})>"

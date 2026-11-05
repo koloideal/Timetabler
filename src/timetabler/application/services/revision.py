@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from timetabler.domain.schemas import ParsedTimetable, Revision, TimetableEntry
+from timetabler.domain.schemas import ParsedTimetable, ResolvedLesson, Revision
 from timetabler.infrastructure.database.dao import RevisionsDAO, StudyGroupsDAO
 
 
@@ -25,7 +25,7 @@ class RevisionService:
     async def get_by_status(self, status: str) -> list[Revision]:
         return await self.revisions_dao.get_by_status(status)
 
-    async def get_entries(self, revision_id: int) -> list[TimetableEntry]:
+    async def get_entries(self, revision_id: int) -> list[ResolvedLesson]:
         return await self.revisions_dao.get_entries(revision_id)
 
     async def latest_group_ids(self) -> list[int]:
