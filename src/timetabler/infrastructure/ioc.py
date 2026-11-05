@@ -148,11 +148,12 @@ class ServicesProvider(Provider):
         deliveries_dao: DeliveriesDAO,
         notifier: CreatorNotifier,
         revisions_config: RevisionsConfig,
+        timing: LessonTimingResolver,
     ) -> BroadcastService:
         return BroadcastService(
             sender, session, session_maker, users_dao, group_chats_dao, channels_dao,
             study_groups_dao, revisions_dao, sent_messages_dao, deliveries_dao,
-            notifier, revisions_config,
+            notifier, revisions_config, timing,
         )
 
     @provide

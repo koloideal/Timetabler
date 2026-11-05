@@ -67,16 +67,36 @@ def _lesson_row(
     label: str,
     base_audience: str | None,
     is_compact: bool,
+    role: str = "normal",
 ) -> list[RichBlockTableCell]:
+    if role == "variant" and lesson.subgroup is not None:
+        subject: RichTextUnion = (
+            f"{lesson.subgroup} п/г" + (f" · {lesson.teacher}" if lesson.teacher else "")
+            if is_compact
+            else f"{lesson.subgroup} п/г"
+        )
+    elif role == "header":
+        subject = RichTextBold(text=lesson.subject)
+    else:
+        subject = _subject_text(lesson)
     if is_compact:
+        details = _details_text(lesson, base_audience) if role != "header" else ""
         return [
             _cell(RichTextBold(text=label) if label else ""),
-            _cell(_subject_text(lesson), align="left"),
-            _cell(_details_text(lesson, base_audience)),
+            _cell(subject, align="left"),
+            _cell(details),
+        ]
+    if role == "header":
+        return [
+            _cell(RichTextBold(text=label) if label else ""),
+            _cell(subject, align="left"),
+            _cell("—"),
+            _cell("—"),
+            _cell("—", align="left"),
         ]
     return [
         _cell(RichTextBold(text=label) if label else ""),
-        _cell(RichTextBold(text=lesson.subject), align="left"),
+        _cell(subject, align="left"),
         _cell(lesson.audience or base_audience or "—"),
         _cell(format_range(lesson.start, lesson.end)),
         _cell(lesson.teacher or "—", align="left"),
@@ -85,27 +105,44 @@ def _lesson_row(
 
 def _display_rows(
     lessons: list[ResolvedLesson], mode: str
-) -> list[tuple[str, ResolvedLesson]]:
+) -> list[tuple[str, ResolvedLesson, str]]:
     if mode != "a":
         sub = int(mode)
         return [
-            (str(l.ordinal), l)
+            (str(l.ordinal), l, "normal")
             for l in sorted(
-                (l for l in lessons if l.subgroup == sub), key=lambda l: l.ordinal
+                (l for l in lessons if l.subgroup in (sub, None)),
+                key=lambda l: l.ordinal,
             )
         ]
     ordered = sorted(
-        lessons, key=lambda l: (l.start is None, l.start or 0, l.subgroup or 0)
+        lessons, key=lambda l: (l.position is None, l.position or 0, l.subgroup or 0)
     )
-    rows: list[tuple[str, ResolvedLesson]] = []
-    seen: dict[tuple, int] = {}
+    blocks: list[list[ResolvedLesson]] = []
     for l in ordered:
-        key = (l.subject, l.start, l.end, l.teacher)
-        if key in seen:
-            rows[seen[key]] = ("", rows[seen[key]][1])
-            continue
-        seen[key] = len(rows)
-        rows.append((f"{l.subgroup} п/г" if l.subgroup is not None else "", l))
+        if (
+            blocks
+            and blocks[-1][0].position == l.position
+            and blocks[-1][0].subject == l.subject
+        ):
+            blocks[-1].append(l)
+        else:
+            blocks.append([l])
+    rows: list[tuple[str, ResolvedLesson, str]] = []
+    for block in blocks:
+        variants: list[ResolvedLesson] = []
+        seen: set[tuple] = set()
+        for l in block:
+            key = (l.start, l.end, l.teacher, l.audience)
+            if key not in seen:
+                seen.add(key)
+                variants.append(l)
+        pos = "–" if block[0].position is None else str(block[0].position)
+        if len(variants) == 1:
+            rows.append((pos, variants[0], "normal"))
+        else:
+            rows.append((pos, block[0], "header"))
+            rows += [("", l, "variant") for l in variants]
     return rows
 
 
@@ -133,8 +170,8 @@ def schedule_table(
     cells = [_header_cells(is_compact)]
 
     used = _row_text_len(cells[0])
-    for label, lesson in _display_rows(lessons, mode):
-        row = _lesson_row(lesson, label, base_audience, is_compact)
+    for label, lesson, role in _display_rows(lessons, mode):
+        row = _lesson_row(lesson, label, base_audience, is_compact, role)
         used += _row_text_len(row)
         if used > config.rich_message_limit:
             break

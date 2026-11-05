@@ -6,11 +6,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from timetabler.application.ports import CreatorNotifier, ScheduleSender
+from timetabler.application.services.lesson_timing import LessonTimingResolver
 from timetabler.domain.schemas import (
     DaySchedule,
     GroupChat,
+    ParsedTimetable,
     Revision,
     ResolvedLesson,
+    TimetableEntry,
 )
 from timetabler.infrastructure.config.app import RevisionsConfig
 from timetabler.infrastructure.database.dao import (
@@ -39,6 +42,7 @@ class BroadcastService:
         deliveries_dao: DeliveriesDAO,
         notifier: CreatorNotifier,
         config: RevisionsConfig,
+        timing: LessonTimingResolver,
     ) -> None:
         self.sender = sender
         self.session = session
@@ -52,6 +56,7 @@ class BroadcastService:
         self.deliveries_dao = deliveries_dao
         self.notifier = notifier
         self.config = config
+        self.timing = timing
         self._logger = logging.getLogger(__name__)
 
     async def _build_day(
@@ -88,6 +93,23 @@ class BroadcastService:
 
     async def revision_schedule(self, revision: Revision) -> DaySchedule:
         entries = await self.revisions_dao.get_entries(revision.id)
+        if entries and all(l.ordinal == 0 for l in entries):
+            parsed = ParsedTimetable(
+                entries=[
+                    TimetableEntry(
+                        group_id=l.group_id,
+                        date=revision.for_date,
+                        position=l.position,
+                        subject=l.subject,
+                        teacher=l.teacher,
+                        audience=l.audience,
+                        starts_at=l.source_time,
+                        subgroup=l.subgroup,
+                    )
+                    for l in entries
+                ]
+            )
+            entries = self.timing.resolve(parsed, revision.for_date)
         return await self._build_day(entries, revision.base_audiences)
 
     async def publish_revision(self, revision: Revision) -> None:
@@ -100,7 +122,7 @@ class BroadcastService:
             UsersDAO(session), GroupChatsDAO(session), ChannelsDAO(session),
             StudyGroupsDAO(session), RevisionsDAO(session),
             SentMessagesDAO(session), DeliveriesDAO(session),
-            self.notifier, self.config,
+            self.notifier, self.config, self.timing,
         )
 
     async def _publish(self, revision: Revision) -> None:
