@@ -18,6 +18,8 @@ class User(Base):
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     groups: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list, server_default="{}")
     subgroup_mode: Mapped[str] = mapped_column(String, nullable=False, default="a", server_default="a")
+    pin_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    pinned_message_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     def __repr__(self) -> str:

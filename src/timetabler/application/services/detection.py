@@ -51,6 +51,36 @@ def _entry_key(entry) -> tuple:
     return (entry.position, entry.subgroup)
 
 
+def _a1_indexes(ref: str) -> tuple[int, int] | None:
+    m = re.fullmatch(r"([A-Za-z]+)(\d+)", ref)
+    if not m:
+        return None
+    col = 0
+    for ch in m.group(1).upper():
+        col = col * 26 + (ord(ch) - ord("A") + 1)
+    return int(m.group(2)) - 1, col - 1
+
+
+def _cell_in_grid(
+    values: list[list[object]], a1_range: str, cell: str
+) -> object | None:
+    bounds = re.fullmatch(r"([A-Za-z]+\d+):([A-Za-z]+\d+)", a1_range)
+    if not bounds:
+        return None
+    r0 = _a1_indexes(bounds.group(1))
+    r1 = _a1_indexes(bounds.group(2))
+    target = _a1_indexes(cell)
+    if not r0 or not r1 or target is None:
+        return None
+    row, col = target
+    if not (r0[0] <= row <= r1[0] and r0[1] <= col <= r1[1]):
+        return None
+    try:
+        return values[row - r0[0]][col - r0[1]]
+    except IndexError:
+        return None
+
+
 def parse_header_date(marker: str, formats: tuple[str, ...]) -> date | None:
     for candidate in re.findall(r"\d{1,4}[.\-/]\d{1,2}[.\-/]\d{1,4}", marker):
         for fmt in formats:
@@ -108,18 +138,27 @@ def compute_diff(
         elif new_g is None and old_g is not None:
             lines.append("- вся группа")
         elif old_g is not None and new_g is not None:
-            old_map = {_entry_key(e): e for e in old_g}
-            new_map = {_entry_key(e): e for e in new_g}
-            for key in sorted(new_map, key=lambda k: (k[0] is None, k[0] or 0, k[1] or 0)):
-                if key not in old_map:
-                    lines.append(f"+ {_pos_label(new_map[key])}: {new_map[key].subject}")
-            for key in sorted(old_map, key=lambda k: (k[0] is None, k[0] or 0, k[1] or 0)):
-                if key not in new_map:
-                    lines.append(f"- {_pos_label(old_map[key])}: {old_map[key].subject}")
-            for key in sorted(new_map.keys() & old_map.keys(), key=lambda k: (k[0] is None, k[0] or 0, k[1] or 0)):
-                changes = _entry_changes(old_map[key], new_map[key])
-                if changes:
-                    lines.append(f"~ {_pos_label(new_map[key])}: " + "; ".join(changes))
+            old_map: dict[tuple, list] = {}
+            for e in old_g:
+                old_map.setdefault(_entry_key(e), []).append(e)
+            new_map: dict[tuple, list] = {}
+            for e in new_g:
+                new_map.setdefault(_entry_key(e), []).append(e)
+            key_order = lambda k: (k[0] is None, k[0] or 0, k[1] or 0)
+            by_subject = lambda e: (e.subject or "", e.teacher or "", e.audience or "")
+            for key in sorted(set(old_map) | set(new_map), key=key_order):
+                olds = sorted(old_map.get(key, []), key=by_subject)
+                news = sorted(new_map.get(key, []), key=by_subject)
+                for old_e, new_e in zip(olds, news):
+                    changes = _entry_changes(old_e, new_e)
+                    if changes:
+                        lines.append(
+                            f"~ {_pos_label(new_e)}: " + "; ".join(changes)
+                        )
+                for e in olds[len(news):]:
+                    lines.append(f"- {_pos_label(e)}: {e.subject}")
+                for e in news[len(olds):]:
+                    lines.append(f"+ {_pos_label(e)}: {e.subject}")
             old_aud = old_audiences.get(group_id)
             new_aud = parsed.base_audiences.get(group_id)
             if old_aud != new_aud:
@@ -182,9 +221,15 @@ class DetectionService:
             return None
 
         if content_hash in self._insane_hashes:
+            if settling is not None and self._settle_elapsed(settling):
+                return await self._settle(settling)
             return None
 
-        marker = await self._read_marker(source.spreadsheet_id, settings.date_cell)
+        raw_marker = _cell_in_grid(values, settings.schedule_range, settings.date_cell)
+        if raw_marker is None:
+            marker = await self._read_marker(source.spreadsheet_id, settings.date_cell)
+        else:
+            marker = _normalize_cell(raw_marker)
         marker_date = parse_header_date(marker, self.config.date_formats)
         if marker_date != for_date:
             if marker_date is None:
@@ -199,6 +244,8 @@ class DetectionService:
                 )
             if marker:
                 await self.sheets_service.mark_header(weekday, marker)
+            if settling is not None and self._settle_elapsed(settling):
+                return await self._settle(settling)
             return None
 
         parsed = self.parser.parse(values, default_date=for_date)
@@ -298,14 +345,19 @@ class DetectionService:
             return await self._settle(updated)
         return None
 
+    def _settle_elapsed(self, revision: Revision) -> bool:
+        elapsed = datetime.now(timezone.utc) - revision.detected_at
+        return elapsed >= timedelta(
+            seconds=self.config.revisions.max_settle_seconds
+        )
+
     async def _on_stable_poll(self, settling: Revision) -> Revision | None:
         rev = await self.revision_service.bump_stable(settling.id)
         if rev is None:
             return None
-        elapsed = datetime.now(timezone.utc) - rev.detected_at
         if (
             rev.stable_polls >= self.config.revisions.stable_polls
-            or elapsed >= timedelta(seconds=self.config.revisions.max_settle_seconds)
+            or self._settle_elapsed(rev)
         ):
             return await self._settle(rev)
         return None

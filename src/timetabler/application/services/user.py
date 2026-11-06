@@ -47,6 +47,14 @@ class UserService:
             return None
         return await self.users_dao.set_subgroup_mode(user_id, mode)
 
+    async def set_pin(self, user_id: int, enabled: bool) -> User | None:
+        return await self.users_dao.set_pin_enabled(user_id, enabled)
+
+    async def set_pinned_messages(
+        self, user_id: int, message_ids: list[int]
+    ) -> User | None:
+        return await self.users_dao.set_pinned_messages(user_id, message_ids)
+
     async def is_banned(self, user_id: int) -> bool:
         user = await self.users_dao.get_by_id(user_id)
         return user.is_banned if user else False

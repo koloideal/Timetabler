@@ -11,6 +11,8 @@ class User:
     groups: list[str]
     created_at: datetime
     subgroup_mode: str = "a"
+    pin_enabled: bool = False
+    pinned_message_ids: list[int] = field(default_factory=list)
 
 
 @dataclass

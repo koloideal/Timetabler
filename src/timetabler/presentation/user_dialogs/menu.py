@@ -32,7 +32,7 @@ from timetabler.presentation.messages import (
     note_blocks,
     now_status_text,
 )
-from timetabler.presentation.telegram import TelegramNotifier
+from timetabler.presentation.telegram import TelegramNotifier, TelegramScheduleSender
 from timetabler.presentation.user_dialogs.group_setup import (
     GroupSetupSG,
     manageable_chats,
@@ -95,11 +95,15 @@ async def get_user_menu_data(
         for g in sorted(subscribed, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
     ]
     enabled = user.notifications_enabled if user else True
+    pin_enabled = user.pin_enabled if user else False
     now_info = await _now_info(user, broadcast_service, app_config)
     return {
         "subscribed_groups": ", ".join(labels) or "—",
         "notifications_btn": (
             "🔕 Выключить уведомления" if enabled else "🔔 Включить уведомления"
+        ),
+        "pin_btn": (
+            "📌 Откреплять расписание" if pin_enabled else "📌 Закреплять расписание"
         ),
         "now_info": now_info,
         "has_now_info": bool(now_info),
@@ -119,6 +123,24 @@ async def on_toggle_notifications(
     await call.answer(
         "🔔 Уведомления включены" if enabled else "🔕 Уведомления выключены"
     )
+
+
+@inject
+async def on_toggle_dm_pin(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    user_service: FromDishka[UserService],
+    schedule_sender: FromDishka[TelegramScheduleSender],
+) -> None:
+    user = await user_service.get_by_id(call.from_user.id)
+    enabled = not (user.pin_enabled if user else False)
+    await user_service.set_pin(call.from_user.id, enabled)
+    if not enabled and user and user.pinned_message_ids:
+        for mid in user.pinned_message_ids:
+            await schedule_sender.unpin_chat_message(call.from_user.id, mid)
+        await user_service.set_pinned_messages(call.from_user.id, [])
+    await call.answer("📌 Закреп включён" if enabled else "📌 Закреп выключен")
 
 
 async def _show_schedule(
@@ -247,15 +269,16 @@ def build_user_menu_dialog() -> Dialog:
         Window(
             Format(
                 "<b>📅 Timetabler</b>\n\n"
-                "🎓 <b>Вы подписаны:</b> {subscribed_groups}\n"
+                "🎓 <b>Вы подписаны:</b> {subscribed_groups}"
             ),
-            Format("\n{now_info}\n", when=F["has_now_info"]),
-            Const("\n<i>powered by <b>kolo</b></i>"),
+            Format("\n\n{now_info}", when=F["has_now_info"]),
+            Const("\n\n<i>powered by <b>kolo</b></i>"),
             Row(
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
                 Button(Const("📅 Завтра"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
             ),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
+            Button(Format("{pin_btn}"), id="u_pin", on_click=on_toggle_dm_pin),
             Row(
                 SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
                 Button(Const("💬 Мои чаты"), id="u_chats", on_click=on_my_chats),

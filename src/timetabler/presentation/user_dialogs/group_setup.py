@@ -207,7 +207,7 @@ async def on_groups_save(
         await callback.answer("❌ Выберите хотя бы одну группу", show_alert=True)
         return
 
-    was_configured = bool(chat.study_groups)
+    was_active = chat.status == "active"
     updated = await group_chat_service.select_groups(
         chat.chat_id, group_ids, callback.from_user.id
     )
@@ -215,7 +215,7 @@ async def on_groups_save(
         await callback.answer("❌ Чат не найден", show_alert=True)
         return
 
-    if not was_configured:
+    if not was_active:
         groups_text = ", ".join(str(g) for g in group_ids)
         try:
             await bot.send_message(chat.chat_id, f"✅ Расписание подключено: {groups_text}")

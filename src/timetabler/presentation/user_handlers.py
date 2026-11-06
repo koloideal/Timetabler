@@ -1,6 +1,7 @@
 from datetime import date
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InputRichMessage, Message
 from aiogram_dialog import DialogManager, StartMode
@@ -118,10 +119,22 @@ def new_user_router() -> Router:
         blocks, markup = content
         if day.updated_label:
             blocks = blocks + note_blocks(day.updated_label)
-        await call.message.edit_text(
-            rich_message=InputRichMessage(blocks=blocks),
-            reply_markup=markup,
-        )
+        try:
+            await call.message.edit_text(
+                rich_message=InputRichMessage(blocks=blocks),
+                reply_markup=markup,
+            )
+        except TelegramBadRequest as e:
+            if "not modified" not in e.message.lower() and call.bot is not None:
+                try:
+                    await call.message.edit_reply_markup(reply_markup=None)
+                except TelegramAPIError:
+                    pass
+                await call.bot.send_rich_message(
+                    chat_id=call.message.chat.id,
+                    rich_message=InputRichMessage(blocks=blocks),
+                    reply_markup=markup,
+                )
         await user_service.set_subgroup_mode(call.from_user.id, mode)
         await call.answer()
 

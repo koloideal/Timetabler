@@ -14,6 +14,7 @@ from timetabler.domain.schemas import (
     Revision,
     ResolvedLesson,
     TimetableEntry,
+    User,
 )
 from timetabler.infrastructure.config.app import RevisionsConfig
 from timetabler.infrastructure.database.dao import (
@@ -146,7 +147,7 @@ class BroadcastService:
         chats = {
             c.chat_id: c
             for c in await self.group_chats_dao.get_active()
-            if {g for g in c.study_groups if g in changed and g in day.by_group}
+            if {g for g in c.study_groups if g in changed}
         }
         recipients += [("chat", chat_id) for chat_id in chats]
 
@@ -252,21 +253,26 @@ class BroadcastService:
         self, chat: GroupChat, revision: Revision, day: DaySchedule, label: str
     ) -> bool:
         changed = set(revision.changed_groups) or set(day.by_group)
-        needed = [
-            g for g in chat.study_groups if g in changed and g in day.by_group
-        ]
-        already = {
-            int(g)
-            for m in await self.sent_messages_dao.get_for_revision(revision.id, chat.chat_id)
-            for g in m.groups
-        }
-        to_send = [g for g in needed if g not in already]
-        if not to_send:
+        relevant = [g for g in chat.study_groups if g in changed]
+        if not relevant:
             return True
+        to_send = [
+            g for g in relevant
+            if g in day.by_group
+            and g
+            not in {
+                int(sg)
+                for m in await self.sent_messages_dao.get_for_revision(
+                    revision.id, chat.chat_id
+                )
+                for sg in m.groups
+            }
+        ]
         result = await self._deliver_group_chat(
-            chat, revision.for_date, day, revision, label, to_send
+            chat, revision.for_date, day, revision, label, to_send,
+            cleanup_groups=relevant,
         )
-        return result == "sent"
+        return result != "failed"
 
     async def _publish_dm(
         self,
@@ -280,9 +286,8 @@ class BroadcastService:
         if user is None:
             return False
 
-        needed = [
-            g for g in sorted(changed) if str(g) in user.groups and g in day.by_group
-        ]
+        relevant = [g for g in sorted(changed) if str(g) in user.groups]
+        needed = [g for g in relevant if g in day.by_group]
         already = {
             int(g)
             for m in await self.sent_messages_dao.get_for_revision(revision.id, user_id)
@@ -312,12 +317,15 @@ class BroadcastService:
                 "dm", [str(group_id)],
             )
 
-        sent_groups = {str(g) for g in needed}
+        sent_groups = {str(g) for g in relevant}
         for old in prev:
             if not sent_groups & set(old.groups):
                 continue
             await self.sender.delete_message(user_id, old.message_id)
             await self.sent_messages_dao.remove(old.id)
+
+        if user.pin_enabled:
+            await self._apply_user_pins(user, sent_now)
         return ok
 
     async def deliver_to_chat(
@@ -340,6 +348,7 @@ class BroadcastService:
         revision: Revision | None,
         note: str | None,
         group_ids: list[int],
+        cleanup_groups: list[int] | None = None,
     ) -> str:
         message_ids = []
         for group_id in group_ids:
@@ -369,11 +378,11 @@ class BroadcastService:
                 "chat", [str(group_id)],
             )
 
-        if not message_ids:
-            return "empty"
-
         if revision is not None:
-            sent_groups = {str(g) for g in group_ids}
+            sent_groups = {
+                str(g)
+                for g in (cleanup_groups if cleanup_groups is not None else group_ids)
+            }
             for old in await self.sent_messages_dao.get_for_day(chat.chat_id, for_date):
                 if old.revision_id == revision.id or old.message_id in message_ids:
                     continue
@@ -382,15 +391,20 @@ class BroadcastService:
                 await self.sender.delete_message(chat.chat_id, old.message_id)
                 await self.sent_messages_dao.remove(old.id)
 
+        if not message_ids:
+            return "empty"
+
         await self._apply_pins(chat, message_ids)
         return "sent"
 
     async def _apply_pins(self, chat: GroupChat, message_ids: list[int]) -> None:
         if not chat.pin_enabled:
             return
-        pinned = []
+        pinned: list[int] = []
         for message_id in message_ids:
             if not await self.sender.pin_chat_message(chat.chat_id, message_id):
+                for mid in pinned:
+                    await self.sender.unpin_chat_message(chat.chat_id, mid)
                 await self._disable_pin(chat)
                 return
             pinned.append(message_id)
@@ -398,6 +412,16 @@ class BroadcastService:
             if old_id not in pinned:
                 await self.sender.unpin_chat_message(chat.chat_id, old_id)
         await self.group_chats_dao.set_pinned_messages(chat.chat_id, pinned)
+
+    async def _apply_user_pins(self, user: User, message_ids: list[int]) -> None:
+        pinned: list[int] = []
+        for message_id in message_ids:
+            if await self.sender.pin_chat_message(user.user_id, message_id):
+                pinned.append(message_id)
+        for old_id in user.pinned_message_ids:
+            if old_id not in pinned:
+                await self.sender.unpin_chat_message(user.user_id, old_id)
+        await self.users_dao.set_pinned_messages(user.user_id, pinned)
 
     async def _disable_pin(self, chat: GroupChat) -> None:
         await self.group_chats_dao.set_pin_enabled(chat.chat_id, False)
