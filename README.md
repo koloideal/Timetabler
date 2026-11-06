@@ -48,7 +48,7 @@ Access the admin panel with `/admin` command:
 - 📢 **Channels**: Approve, disable, send schedule on demand, remove
 - 🎓 **Groups**: Aliases for group IDs, deletion (creator only)
 - 📊 **Sheets**: Bind a spreadsheet ID to each weekday, validate access on save
-- ⚙️ **Settings**: Poll interval, schedule range, date cell, revision confirmation — all editable live
+- ⚙️ **Settings**: Poll interval, lookahead (day-after-next) interval, schedule range, date cell, revision confirmation — all editable live
 - 📅 **Schedule**: Calendar picker with today/tomorrow shortcuts → per-group TG preview (with subgroup toggle) or XLSX export
 
 ## 👤 User Features

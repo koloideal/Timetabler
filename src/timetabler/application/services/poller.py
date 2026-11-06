@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 from dishka import AsyncContainer
@@ -25,11 +26,16 @@ def next_study_day(today: date) -> date:
     return next_day
 
 
+def lookahead_day(today: date) -> date:
+    return next_study_day(next_study_day(today))
+
+
 class SheetsPoller:
     def __init__(self, container: AsyncContainer) -> None:
         self.container = container
         self._errors: dict[object, str] = {}
         self._logger = logging.getLogger(__name__)
+        self._last_lookahead = 0.0
 
     async def run(self) -> None:
         app_config = await self.container.get(AppConfig)
@@ -56,6 +62,11 @@ class SheetsPoller:
 
             today = schedule_today(app_config.revisions.update_timezone)
             days = ([today] if today.weekday() < 6 else []) + [next_study_day(today)]
+            if monotonic() - self._last_lookahead >= settings.lookahead_poll_seconds:
+                self._last_lookahead = monotonic()
+                far = lookahead_day(today)
+                if far not in days:
+                    days.append(far)
             for for_date in days:
                 try:
                     revision = await detection.poll_day(for_date)

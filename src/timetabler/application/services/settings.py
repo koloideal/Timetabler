@@ -22,6 +22,10 @@ class SettingsService:
                 await self.settings_dao.get(self.config.poll_interval_key)
                 or self.config.default_poll_interval_seconds
             ),
+            lookahead_poll_seconds=int(
+                await self.settings_dao.get(self.config.lookahead_poll_key)
+                or self.config.default_lookahead_poll_seconds
+            ),
             require_confirmation=bool(
                 await self.settings_dao.get(self.config.confirmation_key) == "1"
             ),

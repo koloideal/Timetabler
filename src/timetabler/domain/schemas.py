@@ -168,4 +168,5 @@ class SheetsSettings:
     schedule_range: str
     date_cell: str
     poll_interval_seconds: int
+    lookahead_poll_seconds: int
     require_confirmation: bool

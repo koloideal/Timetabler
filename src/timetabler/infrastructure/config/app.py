@@ -30,14 +30,17 @@ class SheetsSettingsConfig:
     schedule_range_key: str = "sheets.schedule_range"
     date_cell_key: str = "sheets.date_cell"
     poll_interval_key: str = "sheets.poll_interval_seconds"
+    lookahead_poll_key: str = "sheets.lookahead_poll_seconds"
     confirmation_key: str = "sheets.require_confirmation"
-    schedule_range_label: str = "диапазон расписания"
-    date_cell_label: str = "ячейка даты"
-    poll_interval_label: str = "интервал опроса, сек"
-    confirmation_label: str = "подтверждение рассылки"
+    schedule_range_label: str = "Диапазон"
+    date_cell_label: str = "Ячейка даты"
+    poll_interval_label: str = "Опрос"
+    lookahead_poll_label: str = "Дальний опрос"
+    confirmation_label: str = "Аппрув"
     default_schedule_range: str = "A1:I200"
     default_date_cell: str = "A1"
     default_poll_interval_seconds: int = 180
+    default_lookahead_poll_seconds: int = 3600
     min_poll_interval_seconds: int = 10
     spreadsheet_id_pattern: str = r"[A-Za-z0-9_-]+"
     spreadsheet_url_pattern: str = r"/d/([A-Za-z0-9_-]+)"
@@ -50,12 +53,27 @@ class SheetsSettingsConfig:
             (self.schedule_range_key, self.schedule_range_label),
             (self.date_cell_key, self.date_cell_label),
             (self.poll_interval_key, self.poll_interval_label),
+            (self.lookahead_poll_key, self.lookahead_poll_label),
             (self.confirmation_key, self.confirmation_label),
         )
 
     @property
     def text_fields(self) -> tuple[tuple[str, str], ...]:
-        return self.fields[:3]
+        return self.fields[:4]
+
+    @property
+    def emojis(self) -> dict[str, str]:
+        return {
+            self.schedule_range_key: "📐",
+            self.date_cell_key: "📍",
+            self.poll_interval_key: "⏱",
+            self.lookahead_poll_key: "🔭",
+            self.confirmation_key: "✅",
+        }
+
+    @property
+    def interval_keys(self) -> frozenset[str]:
+        return frozenset({self.poll_interval_key, self.lookahead_poll_key})
 
 
 @dataclass(frozen=True)

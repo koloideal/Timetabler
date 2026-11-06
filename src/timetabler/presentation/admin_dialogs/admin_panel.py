@@ -805,10 +805,14 @@ async def get_sheets_settings_data(
     values = {
         cfg.schedule_range_key: settings.schedule_range,
         cfg.date_cell_key: settings.date_cell,
-        cfg.poll_interval_key: str(settings.poll_interval_seconds),
+        cfg.poll_interval_key: f"{settings.poll_interval_seconds}с",
+        cfg.lookahead_poll_key: f"{settings.lookahead_poll_seconds}с",
         cfg.confirmation_key: "вкл" if settings.require_confirmation else "выкл",
     }
-    items = [(f"{label} = {values[key]}", key) for key, label in cfg.fields]
+    items = [
+        (f"{cfg.emojis.get(key, '⚙️')} {label} = {values[key]}", key)
+        for key, label in cfg.fields
+    ]
     return {"settings_items": items}
 
 
@@ -874,7 +878,7 @@ async def on_setting_input(
             return
         await settings_service.set(key, text.upper())
         await message.answer("✅ Ячейка сохранена")
-    elif key == cfg.poll_interval_key:
+    elif key in cfg.interval_keys:
         if not text.isdigit() or int(text) < cfg.min_poll_interval_seconds:
             await message.answer(
                 f"❌ Интервал должен быть целым числом секунд (минимум {cfg.min_poll_interval_seconds})"
