@@ -24,7 +24,7 @@ from dishka.integrations.aiogram_dialog import inject
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
-from timetabler.application.services.poller import next_study_day
+from timetabler.application.services.poller import next_study_day, schedule_today
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.application.services.study_group import StudyGroupService
@@ -33,6 +33,7 @@ from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.infrastructure.sheets import GoogleSheetsClient, SheetAccessError
 from timetabler.presentation.messages import (
+    note_blocks,
     preview as schedule_preview,
     subgroup_markup,
 )
@@ -332,14 +333,19 @@ async def on_channel_schedule(
     manager: DialogManager,
     broadcast_service: FromDishka[BroadcastService],
     schedule_sender: FromDishka[TelegramScheduleSender],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     chat_id = manager.dialog_data.get("selected_channel_id")
     if chat_id is None:
         return
     try:
-        target = next_study_day(date.today())
+        target = next_study_day(
+            schedule_today(app_config.revisions.update_timezone)
+        )
         day = await broadcast_service.day_schedule(target)
-        sent = await schedule_sender.send_channel_schedule(chat_id, target, day)
+        sent = await schedule_sender.send_channel_schedule(
+            chat_id, target, day, day.updated_label
+        )
     except TelegramAPIError as e:
         await call.answer(f"❌ Не смог отправить: {e.message}", show_alert=True)
         return
@@ -595,11 +601,11 @@ async def on_sheet_id_input(
     await manager.switch_to(AdminPanelSG.sheets_list)
 
 
-def _picked_schedule_date(manager: DialogManager) -> date:
+def _picked_schedule_date(manager: DialogManager, app_config: AppConfig) -> date:
     raw = manager.dialog_data.get("schedule_date")
     if raw:
         return date.fromisoformat(raw)
-    return next_study_day(date.today())
+    return next_study_day(schedule_today(app_config.revisions.update_timezone))
 
 
 async def _open_schedule_day(
@@ -634,8 +640,12 @@ async def on_schedule_today(
     button: Button,
     manager: DialogManager,
     broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
-    await _open_schedule_day(call, manager, date.today(), broadcast_service)
+    await _open_schedule_day(
+        call, manager,
+        schedule_today(app_config.revisions.update_timezone), broadcast_service,
+    )
 
 
 @inject
@@ -644,9 +654,12 @@ async def on_schedule_tomorrow(
     button: Button,
     manager: DialogManager,
     broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     await _open_schedule_day(
-        call, manager, next_study_day(date.today()), broadcast_service
+        call, manager,
+        next_study_day(schedule_today(app_config.revisions.update_timezone)),
+        broadcast_service,
     )
 
 
@@ -658,7 +671,7 @@ async def get_schedule_view_data(
     app_config: FromDishka[AppConfig],
     **kwargs: object,
 ) -> dict[str, object]:
-    target = _picked_schedule_date(dialog_manager)
+    target = _picked_schedule_date(dialog_manager, app_config)
     day = await broadcast_service.day_schedule(target)
     preview = schedule_preview(day, target, app_config)
     groups = await study_group_service.list_groups()
@@ -681,7 +694,7 @@ async def _send_schedule_preview(
     app_config: AppConfig,
     user_service: UserService,
 ) -> None:
-    target = _picked_schedule_date(manager)
+    target = _picked_schedule_date(manager, app_config)
     day = await broadcast_service.day_schedule(target)
     user = await user_service.get_by_id(call.from_user.id)
     mode = user.subgroup_mode if user else "a"
@@ -696,7 +709,10 @@ async def _send_schedule_preview(
         if group_id is not None and group_id in day.split
         else None
     )
-    await notifier.send_rich_to_creator(preview.blocks, markup)
+    blocks = preview.blocks
+    if day.updated_label:
+        blocks = blocks + note_blocks(day.updated_label)
+    await notifier.send_rich_to_creator(blocks, markup)
     await call.answer()
 
 
@@ -770,8 +786,11 @@ async def on_xlsx_selected(
     button: Button,
     manager: DialogManager,
     sheets_service: FromDishka[SheetsService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
-    await _send_schedule_xlsx(call, _picked_schedule_date(manager), sheets_service)
+    await _send_schedule_xlsx(
+        call, _picked_schedule_date(manager, app_config), sheets_service
+    )
 
 
 @inject

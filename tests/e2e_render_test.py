@@ -3,7 +3,10 @@ from datetime import date
 from timetabler.application.services.lesson_timing import LessonTimingResolver
 from timetabler.domain.schemas import ParsedTimetable, TimetableEntry
 from timetabler.infrastructure.config.app import AppConfig
-from timetabler.presentation.messages.timetable_text import schedule_table
+from timetabler.presentation.messages.timetable_text import (
+    note_blocks,
+    schedule_table,
+)
 
 CFG = AppConfig()
 D = date(2026, 11, 4)
@@ -59,6 +62,15 @@ def test_split_group_single_subgroup_mode():
     assert [r[0] for r in rows[1:]] == ['1', '2', '3']
     assert rows[2][2] == '10:45-12:20' or rows[2][2].endswith('10:45-12:20')
     assert rows[3][2] == '36 · 13:20-14:55'
+
+
+def test_note_blocks_placement():
+    bottom = note_blocks("Обновлено в 10:00")
+    top = note_blocks("Обновлено в 10:00", top=True)
+    assert type(bottom[0]).__name__ == "InputRichBlockDivider"
+    assert type(bottom[1]).__name__ == "InputRichBlockParagraph"
+    assert type(top[0]).__name__ == "InputRichBlockParagraph"
+    assert type(top[1]).__name__ == "InputRichBlockDivider"
 
 
 def test_nonsplit_group_subgroup_mode_not_empty():

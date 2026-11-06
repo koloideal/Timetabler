@@ -14,6 +14,7 @@ from .notifications import (
 )
 from .timetable_text import (
     note_blocks as note_blocks,
+    now_status_text as now_status_text,
     subgroup_markup as subgroup_markup,
     subgroup_markup_mode as subgroup_markup_mode,
 )

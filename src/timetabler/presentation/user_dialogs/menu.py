@@ -1,6 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 from typing import cast
+from zoneinfo import ZoneInfo
 
+from aiogram import F
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery
 from aiogram_dialog import Dialog, DialogManager, Window
@@ -19,11 +21,17 @@ from dishka.integrations.aiogram_dialog import inject
 
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.group_chat import GroupChatService
-from timetabler.application.services.poller import next_study_day
+from timetabler.application.services.lesson_timing import first_event, now_status
+from timetabler.application.services.poller import next_study_day, schedule_today
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
+from timetabler.domain.schemas import DaySchedule, ResolvedLesson, User
 from timetabler.infrastructure.config.app import AppConfig
-from timetabler.presentation.messages import group_messages
+from timetabler.presentation.messages import (
+    group_messages,
+    note_blocks,
+    now_status_text,
+)
 from timetabler.presentation.telegram import TelegramNotifier
 from timetabler.presentation.user_dialogs.group_setup import (
     GroupSetupSG,
@@ -36,11 +44,43 @@ class UserMenuSG(StatesGroup):
     groups = State()
 
 
+def _user_lessons(day: DaySchedule, user: User) -> list[ResolvedLesson]:
+    group_ids = {int(g) for g in user.groups if g.isdigit()}
+    sub = int(user.subgroup_mode) if user.subgroup_mode in ("1", "2") else None
+    return [
+        l
+        for gid in group_ids
+        for l in day.by_group.get(gid, ())
+        if sub is None or l.subgroup in (None, sub)
+    ]
+
+
+async def _now_info(
+    user: User | None,
+    broadcast_service: BroadcastService,
+    app_config: AppConfig,
+) -> str:
+    if user is None or not user.groups:
+        return ""
+    tz = ZoneInfo(app_config.revisions.update_timezone)
+    now = datetime.now(tz)
+    day = await broadcast_service.day_schedule(now.date())
+    now_sec = now.hour * 3600 + now.minute * 60 + now.second
+    status = now_status(_user_lessons(day, user), now_sec)
+    tomorrow_first = None
+    if status.kind in {"done", "empty"}:
+        tomorrow = await broadcast_service.day_schedule(next_study_day(now.date()))
+        tomorrow_first = first_event(_user_lessons(tomorrow, user))
+    return now_status_text(status, tomorrow_first)
+
+
 @inject
 async def get_user_menu_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     study_group_service: FromDishka[StudyGroupService],
+    broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
     **kwargs: object,
 ) -> dict[str, object]:
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
@@ -55,11 +95,14 @@ async def get_user_menu_data(
         for g in sorted(subscribed, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
     ]
     enabled = user.notifications_enabled if user else True
+    now_info = await _now_info(user, broadcast_service, app_config)
     return {
         "subscribed_groups": ", ".join(labels) or "—",
         "notifications_btn": (
             "🔕 Выключить уведомления" if enabled else "🔔 Включить уведомления"
         ),
+        "now_info": now_info,
+        "has_now_info": bool(now_info),
     }
 
 
@@ -99,6 +142,8 @@ async def _show_schedule(
         await call.answer("❌ Нет расписания за этот день", show_alert=True)
         return
     for blocks, markup in messages:
+        if day.updated_label:
+            blocks = blocks + note_blocks(day.updated_label)
         await notifier.send_rich_message(call.from_user.id, blocks, markup)
     await call.answer()
 
@@ -114,7 +159,8 @@ async def on_show_today(
     app_config: FromDishka[AppConfig],
 ) -> None:
     await _show_schedule(
-        call, date.today(), user_service, broadcast_service, notifier, app_config
+        call, schedule_today(app_config.revisions.update_timezone),
+        user_service, broadcast_service, notifier, app_config,
     )
 
 
@@ -129,7 +175,7 @@ async def on_show_tomorrow(
     app_config: FromDishka[AppConfig],
 ) -> None:
     await _show_schedule(
-        call, next_study_day(date.today()),
+        call, next_study_day(schedule_today(app_config.revisions.update_timezone)),
         user_service, broadcast_service, notifier, app_config,
     )
 
@@ -201,9 +247,10 @@ def build_user_menu_dialog() -> Dialog:
         Window(
             Format(
                 "<b>📅 Timetabler</b>\n\n"
-                "🎓 <b>Вы подписаны:</b> {subscribed_groups}\n\n"
-                "<i>powered by <b>kolo</b></i>"
+                "🎓 <b>Вы подписаны:</b> {subscribed_groups}\n"
             ),
+            Format("\n{now_info}\n", when=F["has_now_info"]),
+            Const("\n<i>powered by <b>kolo</b></i>"),
             Row(
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
                 Button(Const("📅 Завтра"), id="u_sched_tomorrow", on_click=on_show_tomorrow),

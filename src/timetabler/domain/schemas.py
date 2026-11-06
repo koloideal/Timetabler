@@ -139,6 +139,19 @@ class DaySchedule:
     audiences: dict[int, str]
     labels: dict[int, str]
     split: set[int]
+    updated_label: str | None = None
+
+
+@dataclass
+class NowStatus:
+    kind: str  # "empty" | "before" | "lesson" | "break" | "done"
+    current_subjects: list[str] = field(default_factory=list)
+    current_slot: int | None = None
+    current_end: int | None = None
+    next_subjects: list[str] = field(default_factory=list)
+    next_slot: int | None = None
+    next_start: int | None = None
+    last_end: int | None = None
 
 
 @dataclass

@@ -2,7 +2,12 @@ import logging
 import re
 from datetime import date
 
-from timetabler.domain.schemas import ParsedTimetable, ResolvedLesson, TimetableEntry
+from timetabler.domain.schemas import (
+    NowStatus,
+    ParsedTimetable,
+    ResolvedLesson,
+    TimetableEntry,
+)
 from timetabler.infrastructure.config.app import LessonSlotConfig, LessonTimingConfig
 
 
@@ -29,6 +34,65 @@ def format_range(start: int | None, end: int | None) -> str:
     if start is None or end is None:
         return "—"
     return f"{format_time(start)}-{format_time_ceil(end)}"
+
+
+def _events(
+    lessons: list[ResolvedLesson],
+) -> list[tuple[int, int, list[str], int | None]]:
+    merged: dict[tuple[int, int], tuple[list[str], int | None]] = {}
+    for l in lessons:
+        if l.start is None or l.end is None:
+            continue
+        key = (l.start, l.end)
+        subjects, slot = merged.get(key, ([], l.slot))
+        if l.subject not in subjects:
+            subjects.append(l.subject)
+        if slot is None:
+            slot = l.slot
+        merged[key] = (subjects, slot)
+    return [
+        (s, e, subjects, slot)
+        for (s, e), (subjects, slot) in sorted(merged.items())
+    ]
+
+
+def now_status(lessons: list[ResolvedLesson], now_sec: int) -> NowStatus:
+    events = _events(lessons)
+    if not events:
+        return NowStatus(kind="empty")
+    last_end = max(e for _, e, _, _ in events)
+    nxt = next((ev for ev in events if ev[0] > now_sec), None)
+    current = [ev for ev in events if ev[0] <= now_sec < ev[1]]
+    if current:
+        slots = [ev[3] for ev in current if ev[3] is not None]
+        return NowStatus(
+            kind="lesson",
+            current_subjects=[s for ev in current for s in ev[2]],
+            current_slot=min(slots) if slots else None,
+            current_end=max(ev[1] for ev in current),
+            next_subjects=nxt[2] if nxt else [],
+            next_slot=nxt[3] if nxt else None,
+            next_start=nxt[0] if nxt else None,
+            last_end=last_end,
+        )
+    if nxt:
+        kind = "before" if now_sec < events[0][0] else "break"
+        return NowStatus(
+            kind=kind,
+            next_subjects=nxt[2],
+            next_slot=nxt[3],
+            next_start=nxt[0],
+            last_end=last_end,
+        )
+    return NowStatus(kind="done")
+
+
+def first_event(lessons: list[ResolvedLesson]) -> tuple[int, list[str]] | None:
+    events = _events(lessons)
+    if not events:
+        return None
+    start, _, subjects, _ = events[0]
+    return start, subjects
 
 
 class LessonTimingResolver:

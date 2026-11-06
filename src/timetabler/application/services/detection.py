@@ -11,7 +11,7 @@ from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
 from timetabler.domain.schemas import ParsedTimetable, Revision, TimetableEntry
-from timetabler.infrastructure.config.app import RevisionsConfig
+from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.sheets import GoogleSheetsClient
 
 def _normalize_cell(value: object) -> str:
@@ -49,6 +49,16 @@ def _group_hash(entries: list) -> str:
 
 def _entry_key(entry) -> tuple:
     return (entry.position, entry.subgroup)
+
+
+def parse_header_date(marker: str, formats: tuple[str, ...]) -> date | None:
+    for candidate in re.findall(r"\d{1,4}[.\-/]\d{1,2}[.\-/]\d{1,4}", marker):
+        for fmt in formats:
+            try:
+                return datetime.strptime(candidate, fmt).date()
+            except ValueError:
+                continue
+    return None
 
 
 def _entry_changes(old, new) -> list[str]:
@@ -128,7 +138,7 @@ class DetectionService:
         sheets_service: SheetsService,
         revision_service: RevisionService,
         notifier: CreatorNotifier,
-        config: RevisionsConfig,
+        config: AppConfig,
         timing: LessonTimingResolver,
     ) -> None:
         self.sheets_client = sheets_client
@@ -175,6 +185,22 @@ class DetectionService:
             return None
 
         marker = await self._read_marker(source.spreadsheet_id, settings.date_cell)
+        marker_date = parse_header_date(marker, self.config.date_formats)
+        if marker_date != for_date:
+            if marker_date is None:
+                self._logger.warning(
+                    "Cannot parse date in header %r for %s, skipping",
+                    marker, for_date,
+                )
+            else:
+                self._logger.info(
+                    "Sheet header %r is for %s, not %s — skipping",
+                    marker, marker_date, for_date,
+                )
+            if marker:
+                await self.sheets_service.mark_header(weekday, marker)
+            return None
+
         parsed = self.parser.parse(values, default_date=for_date)
         parsed.resolved = self.timing.resolve(parsed, for_date)
         parent_entries = (
@@ -278,8 +304,8 @@ class DetectionService:
             return None
         elapsed = datetime.now(timezone.utc) - rev.detected_at
         if (
-            rev.stable_polls >= self.config.stable_polls
-            or elapsed >= timedelta(seconds=self.config.max_settle_seconds)
+            rev.stable_polls >= self.config.revisions.stable_polls
+            or elapsed >= timedelta(seconds=self.config.revisions.max_settle_seconds)
         ):
             return await self._settle(rev)
         return None

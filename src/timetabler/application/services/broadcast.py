@@ -60,7 +60,10 @@ class BroadcastService:
         self._logger = logging.getLogger(__name__)
 
     async def _build_day(
-        self, entries: list[ResolvedLesson], base_audiences: dict[int, str]
+        self,
+        entries: list[ResolvedLesson],
+        base_audiences: dict[int, str],
+        updated_label: str | None = None,
     ) -> DaySchedule:
         aliases = {
             g.group_id: g.alias for g in await self.study_groups_dao.get_all()
@@ -83,6 +86,7 @@ class BroadcastService:
             audiences=base_audiences,
             labels=labels,
             split=split,
+            updated_label=updated_label,
         )
 
     async def day_schedule(self, for_date: date) -> DaySchedule:
@@ -110,7 +114,11 @@ class BroadcastService:
                 ]
             )
             entries = self.timing.resolve(parsed, revision.for_date)
-        return await self._build_day(entries, revision.base_audiences)
+        return await self._build_day(
+            entries,
+            revision.base_audiences,
+            updated_label=self._update_label(revision.published_at),
+        )
 
     async def publish_revision(self, revision: Revision) -> None:
         async with self.session_maker() as session:
@@ -191,9 +199,10 @@ class BroadcastService:
         await self.session.commit()
         self._logger.info("Revision %s for %s published", revision.id, revision.for_date)
 
-    def _update_label(self) -> str:
-        now = datetime.now(ZoneInfo(self.config.update_timezone))
-        return f"Обновлено в {now.strftime('%H:%M')}"
+    def _update_label(self, at: datetime | None = None) -> str:
+        tz = ZoneInfo(self.config.update_timezone)
+        moment = at.astimezone(tz) if at is not None else datetime.now(tz)
+        return f"Обновлено в {moment.strftime('%H:%M')}"
 
     async def _publish_channel(
         self, chat_id: int, revision: Revision, day: DaySchedule, label: str
@@ -205,7 +214,7 @@ class BroadcastService:
             m for m in await self.sent_messages_dao.get_for_day(chat_id, revision.for_date)
             if m.revision_id != revision.id
         ]
-        note = label if prev else None
+        note = label
         message_id = None
 
         if prev:
@@ -254,13 +263,8 @@ class BroadcastService:
         to_send = [g for g in needed if g not in already]
         if not to_send:
             return True
-        prev = [
-            m for m in await self.sent_messages_dao.get_for_day(chat.chat_id, revision.for_date)
-            if m.revision_id != revision.id
-        ]
-        note = label if prev else None
         result = await self._deliver_group_chat(
-            chat, revision.for_date, day, revision, note, to_send
+            chat, revision.for_date, day, revision, label, to_send
         )
         return result == "sent"
 
@@ -288,7 +292,7 @@ class BroadcastService:
             m for m in await self.sent_messages_dao.get_for_day(user_id, revision.for_date)
             if m.revision_id != revision.id
         ]
-        note = label if prev else None
+        note = label
 
         ok = True
         sent_now = []
@@ -324,7 +328,9 @@ class BroadcastService:
         if not groups:
             return "empty"
         revision = await self.revisions_dao.get_published(for_date)
-        return await self._deliver_group_chat(chat, for_date, day, revision, None, groups)
+        return await self._deliver_group_chat(
+            chat, for_date, day, revision, day.updated_label, groups
+        )
 
     async def _deliver_group_chat(
         self,

@@ -99,7 +99,7 @@ class LessonTimingConfig:
 class RevisionsConfig:
     stable_polls: int = 2
     max_settle_seconds: int = 1200
-    update_timezone: str = "Europe/Moscow"
+    update_timezone: str = "Europe/Minsk"
     send_delay_seconds: float = 0.05
     chat_send_failed_text: str = (
         "⚠️ <b>Не смог отправить расписание в «{title}»</b> — рассылка выключена.\n\n"

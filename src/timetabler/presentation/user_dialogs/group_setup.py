@@ -1,5 +1,4 @@
 import logging
-from datetime import date
 from typing import cast
 
 from aiogram import Bot, F
@@ -23,10 +22,11 @@ from dishka.integrations.aiogram_dialog import inject
 
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.group_chat import GroupChatService
-from timetabler.application.services.poller import next_study_day
+from timetabler.application.services.poller import next_study_day, schedule_today
 from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.domain.schemas import GroupChat
+from timetabler.infrastructure.config.app import AppConfig
 
 
 class GroupSetupSG(StatesGroup):
@@ -190,6 +190,7 @@ async def on_groups_save(
     dialog_manager: DialogManager,
     group_chat_service: FromDishka[GroupChatService],
     broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     chat = await _current_chat(dialog_manager, group_chat_service)
     bot = callback.bot
@@ -222,7 +223,10 @@ async def on_groups_save(
             logging.getLogger(__name__).warning(
                 "Cannot notify chat %s about setup", chat.chat_id
             )
-        await broadcast_service.deliver_to_chat(updated, next_study_day(date.today()))
+        await broadcast_service.deliver_to_chat(
+            updated,
+            next_study_day(schedule_today(app_config.revisions.update_timezone)),
+        )
 
     await callback.answer("✅ Группы сохранены")
     await dialog_manager.switch_to(GroupSetupSG.settings)
@@ -276,6 +280,7 @@ async def on_send_test(
     dialog_manager: DialogManager,
     group_chat_service: FromDishka[GroupChatService],
     broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
 ) -> None:
     chat = await _current_chat(dialog_manager, group_chat_service)
     bot = callback.bot
@@ -285,7 +290,9 @@ async def on_send_test(
     if not await is_chat_admin(bot, chat.chat_id, callback.from_user.id):
         await callback.answer("❌ Нужны права администратора чата", show_alert=True)
         return
-    result = await broadcast_service.deliver_to_chat(chat, next_study_day(date.today()))
+    result = await broadcast_service.deliver_to_chat(
+        chat, next_study_day(schedule_today(app_config.revisions.update_timezone))
+    )
     text = {
         "sent": "✅ Отправлено",
         "empty": "❌ Нет расписания для выбранных групп",

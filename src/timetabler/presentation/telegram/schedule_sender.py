@@ -28,9 +28,12 @@ class TelegramScheduleSender(ScheduleSender):
 
     @staticmethod
     def _with_note(
-        blocks: list[InputRichBlockUnion], note: str | None
+        blocks: list[InputRichBlockUnion], note: str | None, top: bool = False
     ) -> list[InputRichBlockUnion]:
-        return blocks + note_blocks(note) if note else blocks
+        if not note:
+            return blocks
+        part = note_blocks(note, top=top)
+        return part + blocks if top else blocks + part
 
     async def send_group_schedule(
         self, chat_id: int, for_date: date, day: DaySchedule, group_id: int,
@@ -62,7 +65,8 @@ class TelegramScheduleSender(ScheduleSender):
                 chat_id=chat_id,
                 rich_message=InputRichMessage(
                     blocks=self._with_note(
-                        channel_blocks(day, for_date, self.config, is_compact=True), note
+                        channel_blocks(day, for_date, self.config, is_compact=True),
+                        note, top=True,
                     )
                 ),
             )
@@ -82,7 +86,8 @@ class TelegramScheduleSender(ScheduleSender):
                 message_id=message_id,
                 rich_message=InputRichMessage(
                     blocks=self._with_note(
-                        channel_blocks(day, for_date, self.config, is_compact=True), note
+                        channel_blocks(day, for_date, self.config, is_compact=True),
+                        note, top=True,
                     )
                 ),
             )

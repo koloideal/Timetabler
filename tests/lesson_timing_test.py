@@ -1,7 +1,7 @@
 from datetime import date, time
 
 from timetabler.application.services.lesson_timing import (
-    LessonTimingResolver, format_range,
+    LessonTimingResolver, first_event, format_range, now_status,
 )
 from timetabler.domain.schemas import ParsedTimetable, TimetableEntry
 from timetabler.infrastructure.config.app import LessonTimingConfig
@@ -78,6 +78,49 @@ def test_off_grid_and_no_slot():
     assert len(by_pos) == 1 and by_pos[6].slot is None and by_pos[6].start is None
     off = [l for l in lessons if "off_grid" in l.flags]
     assert len(off) == 1 and off[0].slot is None and off[0].end - off[0].start == 5700
+
+
+def sec(h, m=0):
+    return h * 3600 + m * 60
+
+
+def test_now_status_lesson_break_done():
+    lessons = resolve([e(1, "Математика"), e(2, "Физика")])
+    st = now_status(lessons, sec(9, 30))
+    assert st.kind == "lesson"
+    assert st.current_subjects == ["Математика"] and st.current_slot == 1
+    assert st.current_end == sec(10, 35)
+    assert st.next_subjects == ["Физика"] and st.next_start == sec(10, 45)
+    assert st.last_end == sec(12, 20)
+
+    st = now_status(lessons, sec(10, 40))
+    assert st.kind == "break" and st.next_subjects == ["Физика"]
+
+    st = now_status(lessons, sec(13))
+    assert st.kind == "done"
+
+    st = now_status(lessons, sec(8))
+    assert st.kind == "before" and st.next_start == sec(9)
+
+    assert now_status([], sec(10)).kind == "empty"
+
+
+def test_now_status_merges_parallel_subgroups():
+    lessons = resolve([
+        e(3, "Иностранный язык", "Соколовский", None, (10, 45), 1),
+        e(3, "Иностранный язык", "Шавейко", "39", (10, 45), 2),
+    ])
+    st = now_status(lessons, sec(11))
+    assert st.kind == "lesson"
+    assert st.current_subjects == ["Иностранный язык"]
+    assert st.current_end == sec(12, 20)
+
+
+def test_first_event():
+    lessons = resolve([e(2, "Физика"), e(1, "Математика")])
+    start, subjects = first_event(lessons)
+    assert start == sec(9) and subjects == ["Математика"]
+    assert first_event([]) is None
 
 
 def test_saturday_grid():

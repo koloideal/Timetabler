@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from dishka import AsyncContainer
 
@@ -11,6 +12,10 @@ from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.sheets import SheetAccessError
+
+
+def schedule_today(tz_name: str) -> date:
+    return datetime.now(ZoneInfo(tz_name)).date()
 
 
 def next_study_day(today: date) -> date:
@@ -37,6 +42,7 @@ class SheetsPoller:
             await asyncio.sleep(delay)
 
     async def poll_once(self) -> int:
+        app_config = await self.container.get(AppConfig)
         async with self.container() as scope:
             settings_service: SettingsService = await scope.get(SettingsService)
             detection: DetectionService = await scope.get(DetectionService)
@@ -48,7 +54,7 @@ class SheetsPoller:
 
             approved = await revision_service.get_by_status("approved")
 
-            today = date.today()
+            today = schedule_today(app_config.revisions.update_timezone)
             days = ([today] if today.weekday() < 6 else []) + [next_study_day(today)]
             for for_date in days:
                 try:

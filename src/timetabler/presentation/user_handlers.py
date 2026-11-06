@@ -14,6 +14,7 @@ from timetabler.infrastructure.config.models import Config
 from timetabler.presentation.messages import (
     group_content,
     group_setup_markup,
+    note_blocks,
     subgroup_markup_mode,
 )
 from timetabler.presentation.telegram import TelegramNotifier
@@ -115,6 +116,8 @@ def new_user_router() -> Router:
             await call.answer("❌ Нет расписания за этот день", show_alert=True)
             return
         blocks, markup = content
+        if day.updated_label:
+            blocks = blocks + note_blocks(day.updated_label)
         await call.message.edit_text(
             rich_message=InputRichMessage(blocks=blocks),
             reply_markup=markup,

@@ -15,8 +15,8 @@ from aiogram.types import (
     RichTextUnion,
 )
 
-from timetabler.application.services.lesson_timing import format_range
-from timetabler.domain.schemas import ResolvedLesson
+from timetabler.application.services.lesson_timing import format_range, format_time
+from timetabler.domain.schemas import NowStatus, ResolvedLesson
 from timetabler.infrastructure.config.app import AppConfig
 
 
@@ -252,11 +252,64 @@ def build_channel_blocks(
     return blocks
 
 
-def note_blocks(note: str) -> list[InputRichBlockUnion]:
-    return [
-        InputRichBlockDivider(),
-        InputRichBlockParagraph(text=[RichTextItalic(text=f"🔄 {note}")]),
-    ]
+def note_blocks(note: str, top: bool = False) -> list[InputRichBlockUnion]:
+    paragraph = InputRichBlockParagraph(text=[RichTextItalic(text=f"🔄 {note}")])
+    divider = InputRichBlockDivider()
+    return [paragraph, divider] if top else [divider, paragraph]
+
+
+def _subjects_line(subjects: list[str]) -> str:
+    return " / ".join(subjects)
+
+
+def now_status_text(
+    status: NowStatus,
+    tomorrow_first: tuple[int, list[str]] | None = None,
+) -> str:
+    if status.kind == "lesson":
+        assert status.current_end is not None and status.last_end is not None
+        slot = f" · {status.current_slot}-я пара" if status.current_slot else ""
+        lines = [
+            f"⏰ <b>Сейчас{slot}:</b> «{_subjects_line(status.current_subjects)}» "
+            f"— <i>до {format_time(status.current_end)}</i>",
+        ]
+        if status.next_start is not None:
+            lines.append(
+                f"➡️ <b>Дальше:</b> «{_subjects_line(status.next_subjects)}» "
+                f"— <i>в {format_time(status.next_start)}</i>"
+            )
+        lines.append(f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>")
+        return "\n".join(lines)
+    if status.kind == "break":
+        assert status.next_start is not None and status.last_end is not None
+        return (
+            f"⏸ <b>Перемена до {format_time(status.next_start)}</b>\n"
+            f"➡️ <b>Дальше:</b> «{_subjects_line(status.next_subjects)}»\n"
+            f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>"
+        )
+    if status.kind == "before":
+        assert status.next_start is not None and status.last_end is not None
+        return (
+            "🌅 <b>Пары ещё не начались</b>\n"
+            f"▶️ <b>Первая:</b> «{_subjects_line(status.next_subjects)}» "
+            f"— <i>в {format_time(status.next_start)}</i>\n"
+            f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>"
+        )
+    head = (
+        "✅ <b>Пары на сегодня закончились</b>"
+        if status.kind == "done"
+        else "🛌 <b>Сегодня пар нет</b>"
+    )
+    if tomorrow_first is None:
+        if status.kind == "done":
+            return f"{head}\n📅 <i>На завтра расписания пока нет</i>"
+        return head
+    start, subjects = tomorrow_first
+    return (
+        f"{head}\n"
+        f"📅 <b>Завтра:</b> первая в <i>{format_time(start)}</i> "
+        f"— «{_subjects_line(subjects)}»"
+    )
 
 
 def subgroup_callback(group_id: int, for_date: date, mode: str) -> str:
