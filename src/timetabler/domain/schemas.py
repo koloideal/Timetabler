@@ -88,7 +88,6 @@ class ResolvedLesson:
 @dataclass
 class DiffLine:
     pos: str
-    field: str
     old: str | None
     new: str | None
 

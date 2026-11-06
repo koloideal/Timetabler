@@ -25,8 +25,12 @@ def _serialize_diff(diff: dict[int, list[DiffLine]]) -> dict:
 def _deserialize_diff(raw: dict) -> dict[int, list[DiffLine]]:
     def to_line(item: object) -> DiffLine:
         if isinstance(item, dict):
-            return DiffLine(**item)
-        return DiffLine("—", "", None, str(item))
+            return DiffLine(
+                pos=str(item.get("pos", "—")),
+                old=item.get("old"),
+                new=item.get("new"),
+            )
+        return DiffLine("—", None, str(item))
 
     return {
         int(g): [to_line(item) for item in lines] for g, lines in raw.items()

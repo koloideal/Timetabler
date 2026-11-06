@@ -139,9 +139,9 @@ def compute_diff(
         old_g = old_by_group.get(group_id)
         new_g = new_by_group.get(group_id)
         if old_g is None and new_g is not None:
-            lines.append(DiffLine("вся группа", "", None, f"{len(new_g)} пар"))
+            lines.append(DiffLine("вся группа", None, f"{len(new_g)} пар"))
         elif new_g is None and old_g is not None:
-            lines.append(DiffLine("вся группа", "", f"{len(old_g)} пар", None))
+            lines.append(DiffLine("вся группа", f"{len(old_g)} пар", None))
         elif old_g is not None and new_g is not None:
             old_map: dict[tuple, list] = {}
             for e in old_g:
@@ -155,21 +155,55 @@ def compute_diff(
                 olds = sorted(old_map.get(key, []), key=by_subject)
                 news = sorted(new_map.get(key, []), key=by_subject)
                 for old_e, new_e in zip(olds, news):
-                    for field, old_v, new_v in _entry_changes(old_e, new_e):
+                    changes = _entry_changes(old_e, new_e)
+                    if changes:
                         lines.append(
-                            DiffLine(_pos_label(new_e), field, old_v, new_v)
+                            DiffLine(
+                                _pos_label(new_e),
+                                _changes_side(changes, 0),
+                                _changes_side(changes, 1),
+                            )
                         )
                 for e in olds[len(news):]:
-                    lines.append(DiffLine(_pos_label(e), "пара", e.subject, None))
+                    lines.append(DiffLine(_pos_label(e), _lesson_desc(e), None))
                 for e in news[len(olds):]:
-                    lines.append(DiffLine(_pos_label(e), "пара", None, e.subject))
+                    lines.append(DiffLine(_pos_label(e), None, _lesson_desc(e)))
             old_aud = old_audiences.get(group_id)
             new_aud = parsed.base_audiences.get(group_id)
             if old_aud != new_aud:
-                lines.append(DiffLine("сбор", "ауд.", old_aud, new_aud))
+                lines.append(
+                    DiffLine(
+                        "сбор",
+                        f"ауд. {old_aud}" if old_aud else None,
+                        f"ауд. {new_aud}" if new_aud else None,
+                    )
+                )
         if lines:
             diff[group_id] = lines
     return sorted(diff), diff
+
+
+def _fmt_change_val(label: str, value: object) -> str:
+    if value is None:
+        return "—"
+    return f"ауд. {value}" if label == "ауд." else str(value)
+
+
+def _changes_side(changes: list[tuple[str, str | None, str | None]], idx: int) -> str:
+    return " · ".join(
+        _fmt_change_val(label, values[idx]) for label, *values in changes
+    )
+
+
+def _lesson_desc(e) -> str:
+    parts = [e.subject or "—"]
+    if e.teacher:
+        parts.append(e.teacher)
+    if e.audience:
+        parts.append(f"ауд. {e.audience}")
+    if getattr(e, "start", None) is not None:
+        parts.append(format_range(e.start, e.end))
+    return " · ".join(parts)
 
 
 def new_groups_diff(parsed: ParsedTimetable) -> dict[int, list[DiffLine]]:
@@ -177,7 +211,7 @@ def new_groups_diff(parsed: ParsedTimetable) -> dict[int, list[DiffLine]]:
     for e in parsed.entries:
         counts[e.group_id] = counts.get(e.group_id, 0) + 1
     return {
-        g: [DiffLine("вся группа", "", None, f"{n} пар")]
+        g: [DiffLine("вся группа", None, f"{n} пар")]
         for g, n in sorted(counts.items())
     }
 

@@ -1,6 +1,7 @@
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputRichBlockDetails,
     InputRichBlockDivider,
     InputRichBlockParagraph,
     InputRichBlockSectionHeading,
@@ -62,7 +63,6 @@ def new_user_text(user: User) -> str:
 
 
 def _diff_row(line: DiffLine) -> list[RichBlockTableCell]:
-    first = line.pos + (f" · {line.field}" if line.field else "")
     old: RichTextUnion = (
         "—" if line.old is None else RichTextStrikethrough(text=line.old)
     )
@@ -70,7 +70,7 @@ def _diff_row(line: DiffLine) -> list[RichBlockTableCell]:
         "—" if line.new is None else RichTextBold(text=line.new)
     )
     return [
-        RichBlockTableCell(align="left", valign="middle", text=first),
+        RichBlockTableCell(align="left", valign="middle", text=line.pos),
         RichBlockTableCell(align="left", valign="middle", text=old),
         RichBlockTableCell(align="left", valign="middle", text=new),
     ]
@@ -117,13 +117,14 @@ def revision_approval_blocks(
     if revision.diff:
         groups = sorted(revision.diff)
         for group_id in groups[:_MAX_DIFF_GROUPS]:
-            blocks.append(InputRichBlockDivider())
             blocks.append(
-                InputRichBlockSectionHeading(text=f"🎓 Группа {group_id}", size=3)
+                InputRichBlockDetails(
+                    summary=f"🎓 Группа {group_id}",
+                    blocks=[_diff_table(revision.diff[group_id])],
+                    is_open=False,
+                )
             )
-            blocks.append(_diff_table(revision.diff[group_id]))
         if len(groups) > _MAX_DIFF_GROUPS:
-            blocks.append(InputRichBlockDivider())
             blocks.append(
                 InputRichBlockParagraph(
                     text=f"… и ещё {len(groups) - _MAX_DIFF_GROUPS} групп"
