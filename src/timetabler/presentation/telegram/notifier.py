@@ -17,8 +17,8 @@ from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.presentation.messages import (
     new_user_text,
+    revision_approval_blocks,
     revision_approval_markup,
-    revision_approval_text,
 )
 
 
@@ -81,7 +81,7 @@ class TelegramNotifier(CreatorNotifier):
 
     async def ask_revision_approval(self, revision: Revision) -> None:
         await self.send_rich_to_creator(
-            revision_approval_text(revision, self.app_config),
+            revision_approval_blocks(revision, self.app_config),
             reply_markup=revision_approval_markup(revision.id),
         )
 

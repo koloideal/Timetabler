@@ -1,6 +1,11 @@
 from datetime import date, datetime
 
-from timetabler.domain.schemas import ParsedTimetable, ResolvedLesson, Revision
+from timetabler.domain.schemas import (
+    DiffLine,
+    ParsedTimetable,
+    ResolvedLesson,
+    Revision,
+)
 from timetabler.infrastructure.database.dao import RevisionsDAO, StudyGroupsDAO
 
 
@@ -40,7 +45,7 @@ class RevisionService:
         group_hashes: dict[int, str],
         kind: str,
         changed_groups: list[int],
-        diff: dict[int, list[str]],
+        diff: dict[int, list[DiffLine]],
         parent_revision_id: int | None,
         parsed: ParsedTimetable,
     ) -> Revision:
@@ -67,7 +72,7 @@ class RevisionService:
         group_hashes: dict[int, str],
         kind: str,
         changed_groups: list[int],
-        diff: dict[int, list[str]],
+        diff: dict[int, list[DiffLine]],
         parent_revision_id: int | None,
         parsed: ParsedTimetable,
     ) -> Revision | None:

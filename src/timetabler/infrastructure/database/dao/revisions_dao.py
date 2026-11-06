@@ -1,15 +1,36 @@
+from dataclasses import asdict
 from datetime import date
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from timetabler.domain.schemas import ParsedTimetable, ResolvedLesson, Revision
+from timetabler.domain.schemas import (
+    DiffLine,
+    ParsedTimetable,
+    ResolvedLesson,
+    Revision,
+)
 from timetabler.infrastructure.database.models import (
     TimetableRevision as OrmRevision,
 )
 from timetabler.infrastructure.database.models import (
     TimetableRevisionEntry as OrmEntry,
 )
+
+
+def _serialize_diff(diff: dict[int, list[DiffLine]]) -> dict:
+    return {str(g): [asdict(line) for line in lines] for g, lines in diff.items()}
+
+
+def _deserialize_diff(raw: dict) -> dict[int, list[DiffLine]]:
+    def to_line(item: object) -> DiffLine:
+        if isinstance(item, dict):
+            return DiffLine(**item)
+        return DiffLine("—", "", None, str(item))
+
+    return {
+        int(g): [to_line(item) for item in lines] for g, lines in raw.items()
+    }
 
 
 class RevisionsDAO:
@@ -76,7 +97,7 @@ class RevisionsDAO:
         group_hashes: dict[int, str],
         kind: str,
         changed_groups: list[int],
-        diff: dict[int, list[str]],
+        diff: dict[int, list[DiffLine]],
         parent_revision_id: int | None,
         status: str,
         parsed: ParsedTimetable,
@@ -90,7 +111,7 @@ class RevisionsDAO:
             base_audiences={str(g): a for g, a in parsed.base_audiences.items()},
             kind=kind,
             changed_groups=changed_groups,
-            diff={str(g): lines for g, lines in diff.items()},
+            diff=_serialize_diff(diff),
             parent_revision_id=parent_revision_id,
             status=status,
         )
@@ -111,7 +132,7 @@ class RevisionsDAO:
         group_hashes: dict[int, str],
         kind: str,
         changed_groups: list[int],
-        diff: dict[int, list[str]],
+        diff: dict[int, list[DiffLine]],
         parent_revision_id: int | None,
         parsed: ParsedTimetable,
     ) -> Revision | None:
@@ -125,7 +146,7 @@ class RevisionsDAO:
                 base_audiences={str(g): a for g, a in parsed.base_audiences.items()},
                 kind=kind,
                 changed_groups=changed_groups,
-                diff={str(g): lines for g, lines in diff.items()},
+                diff=_serialize_diff(diff),
                 parent_revision_id=parent_revision_id,
                 stable_polls=0,
             )
@@ -263,7 +284,7 @@ class RevisionsDAO:
             base_audiences={int(g): a for g, a in (orm_rev.base_audiences or {}).items()},
             kind=orm_rev.kind,
             changed_groups=[int(g) for g in (orm_rev.changed_groups or [])],
-            diff={int(g): list(lines) for g, lines in (orm_rev.diff or {}).items()},
+            diff=_deserialize_diff(orm_rev.diff or {}),
             parent_revision_id=orm_rev.parent_revision_id,
             status=orm_rev.status,
             stable_polls=orm_rev.stable_polls,

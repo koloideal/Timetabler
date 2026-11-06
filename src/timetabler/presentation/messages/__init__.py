@@ -9,8 +9,8 @@ from .notifications import (
     channel_approval_markup as channel_approval_markup,
     group_setup_markup as group_setup_markup,
     new_user_text as new_user_text,
+    revision_approval_blocks as revision_approval_blocks,
     revision_approval_markup as revision_approval_markup,
-    revision_approval_text as revision_approval_text,
 )
 from .timetable_text import (
     note_blocks as note_blocks,

@@ -86,6 +86,14 @@ class ResolvedLesson:
 
 
 @dataclass
+class DiffLine:
+    pos: str
+    field: str
+    old: str | None
+    new: str | None
+
+
+@dataclass
 class Revision:
     id: int
     for_date: date
@@ -96,7 +104,7 @@ class Revision:
     base_audiences: dict[int, str]
     kind: str
     changed_groups: list[int]
-    diff: dict[int, list[str]]
+    diff: dict[int, list[DiffLine]]
     parent_revision_id: int | None
     status: str
     stable_polls: int

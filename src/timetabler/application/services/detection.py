@@ -10,7 +10,12 @@ from timetabler.application.services.lesson_timing import LessonTimingResolver, 
 from timetabler.application.services.revision import RevisionService
 from timetabler.application.services.settings import SettingsService
 from timetabler.application.services.sheets import SheetsService
-from timetabler.domain.schemas import ParsedTimetable, Revision, TimetableEntry
+from timetabler.domain.schemas import (
+    DiffLine,
+    ParsedTimetable,
+    Revision,
+    TimetableEntry,
+)
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.sheets import GoogleSheetsClient
 
@@ -91,7 +96,7 @@ def parse_header_date(marker: str, formats: tuple[str, ...]) -> date | None:
     return None
 
 
-def _entry_changes(old, new) -> list[str]:
+def _entry_changes(old, new) -> list[tuple[str, str | None, str | None]]:
     changes = []
     for field, label in (
         ("subject", "предмет"),
@@ -101,11 +106,11 @@ def _entry_changes(old, new) -> list[str]:
         old_v = getattr(old, field)
         new_v = getattr(new, field)
         if old_v != new_v:
-            changes.append(f"{label} {old_v or '—'} → {new_v or '—'}")
+            changes.append((label, old_v, new_v))
     old_t = format_range(getattr(old, "start", None), getattr(old, "end", None))
     new_t = format_range(getattr(new, "start", None), getattr(new, "end", None))
     if old_t != new_t:
-        changes.append(f"время {old_t} → {new_t}")
+        changes.append(("время", old_t, new_t))
     return changes
 
 
@@ -120,7 +125,7 @@ def compute_diff(
     old_entries: list,
     old_audiences: dict[int, str],
     parsed: ParsedTimetable,
-) -> tuple[list[int], dict[int, list[str]]]:
+) -> tuple[list[int], dict[int, list[DiffLine]]]:
     old_by_group: dict[int, list] = {}
     for e in old_entries:
         old_by_group.setdefault(e.group_id, []).append(e)
@@ -128,15 +133,15 @@ def compute_diff(
     for e in parsed.resolved or parsed.entries:
         new_by_group.setdefault(e.group_id, []).append(e)
 
-    diff: dict[int, list[str]] = {}
+    diff: dict[int, list[DiffLine]] = {}
     for group_id in sorted(set(old_by_group) | set(new_by_group)):
-        lines = []
+        lines: list[DiffLine] = []
         old_g = old_by_group.get(group_id)
         new_g = new_by_group.get(group_id)
         if old_g is None and new_g is not None:
-            lines.append(f"+ вся группа ({len(new_g)} пар)")
+            lines.append(DiffLine("вся группа", "", None, f"{len(new_g)} пар"))
         elif new_g is None and old_g is not None:
-            lines.append("- вся группа")
+            lines.append(DiffLine("вся группа", "", f"{len(old_g)} пар", None))
         elif old_g is not None and new_g is not None:
             old_map: dict[tuple, list] = {}
             for e in old_g:
@@ -150,22 +155,31 @@ def compute_diff(
                 olds = sorted(old_map.get(key, []), key=by_subject)
                 news = sorted(new_map.get(key, []), key=by_subject)
                 for old_e, new_e in zip(olds, news):
-                    changes = _entry_changes(old_e, new_e)
-                    if changes:
+                    for field, old_v, new_v in _entry_changes(old_e, new_e):
                         lines.append(
-                            f"~ {_pos_label(new_e)}: " + "; ".join(changes)
+                            DiffLine(_pos_label(new_e), field, old_v, new_v)
                         )
                 for e in olds[len(news):]:
-                    lines.append(f"- {_pos_label(e)}: {e.subject}")
+                    lines.append(DiffLine(_pos_label(e), "пара", e.subject, None))
                 for e in news[len(olds):]:
-                    lines.append(f"+ {_pos_label(e)}: {e.subject}")
+                    lines.append(DiffLine(_pos_label(e), "пара", None, e.subject))
             old_aud = old_audiences.get(group_id)
             new_aud = parsed.base_audiences.get(group_id)
             if old_aud != new_aud:
-                lines.append(f"сбор ауд.: {old_aud or '—'} → {new_aud or '—'}")
+                lines.append(DiffLine("сбор", "ауд.", old_aud, new_aud))
         if lines:
             diff[group_id] = lines
     return sorted(diff), diff
+
+
+def new_groups_diff(parsed: ParsedTimetable) -> dict[int, list[DiffLine]]:
+    counts: dict[int, int] = {}
+    for e in parsed.entries:
+        counts[e.group_id] = counts.get(e.group_id, 0) + 1
+    return {
+        g: [DiffLine("вся группа", "", None, f"{n} пар")]
+        for g, n in sorted(counts.items())
+    }
 
 
 class DetectionService:
@@ -289,7 +303,7 @@ class DetectionService:
                 return None
         else:
             changed = sorted({e.group_id for e in parsed.entries})
-            diff = {}
+            diff = new_groups_diff(parsed)
 
         revision = await self.revision_service.create(
             for_date=for_date,
@@ -328,7 +342,7 @@ class DetectionService:
                 return None
         else:
             changed = sorted({e.group_id for e in parsed.entries})
-            diff = {}
+            diff = new_groups_diff(parsed)
 
         updated = await self.revision_service.refresh_candidate(
             settling,
