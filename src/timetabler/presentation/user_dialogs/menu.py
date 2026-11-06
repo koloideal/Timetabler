@@ -246,6 +246,7 @@ async def get_user_groups_data(
 
     return {
         "groups": [(str(g.group_id), str(g.group_id)) for g in groups],
+        "has_groups": bool(groups),
     }
 
 
@@ -289,7 +290,13 @@ def build_user_menu_dialog() -> Dialog:
         Window(
             Const(
                 "<b>🎓 Подписки</b>\n\n"
-                "Выберите группы, по которым присылать расписание:"
+                "Выберите группы, по которым присылать расписание:",
+                when=F["has_groups"],
+            ),
+            Const(
+                "<b>🎓 Подписки</b>\n\n"
+                "Расписание ещё не загружено — групп нет. Попробуйте позже.",
+                when=~F["has_groups"],
             ),
             ScrollingGroup(
                 Multiselect(
@@ -305,6 +312,7 @@ def build_user_menu_dialog() -> Dialog:
                 width=3,
                 height=7,
                 hide_on_single_page=True,
+                when=F["has_groups"],
             ),
             SwitchTo(Const("◀️ Назад"), id="u_groups_back", state=UserMenuSG.main),
             state=UserMenuSG.groups,

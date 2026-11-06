@@ -38,7 +38,10 @@ def new_user_router() -> Router:
         user, is_new = await user_service.get_or_create(message.from_user.id, message.from_user.username)
         if is_new:
             await notifier.notify_new_user(user)
-        await dialog_manager.start(UserMenuSG.main, mode=StartMode.RESET_STACK)
+        await dialog_manager.start(
+            UserMenuSG.groups if is_new else UserMenuSG.main,
+            mode=StartMode.RESET_STACK,
+        )
 
         for chat in await group_chat_service.get_pending_for_user(user.user_id):
             await message.answer(
