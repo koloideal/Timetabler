@@ -263,7 +263,7 @@ async def get_pick_main_data(
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
     groups = await study_group_service.list_groups()
     return {
-        "groups": [(g.group_id, g.display_name) for g in groups],
+        "groups": [(g.group_id, str(g.group_id)) for g in groups],
         "has_groups": bool(groups),
         "has_main": user is not None and user.main_group is not None,
         "onboarding": _onboarding(dialog_manager),
@@ -403,7 +403,7 @@ def build_user_menu_dialog() -> Dialog:
                     on_click=on_main_group_picked,
                 ),
                 id="main_group_scroll",
-                width=2,
+                width=3,
                 height=8,
                 hide_on_single_page=True,
                 when=F["has_groups"],
