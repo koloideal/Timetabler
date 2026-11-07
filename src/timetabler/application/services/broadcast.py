@@ -203,7 +203,7 @@ class BroadcastService:
     def _update_label(self, at: datetime | None = None) -> str:
         tz = ZoneInfo(self.config.update_timezone)
         moment = at.astimezone(tz) if at is not None else datetime.now(tz)
-        return f"Обновлено в {moment.strftime('%H:%M')}"
+        return f"Обновлено {moment.strftime('%d.%m в %H:%M')}"
 
     async def _publish_channel(
         self, chat_id: int, revision: Revision, day: DaySchedule, label: str

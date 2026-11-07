@@ -122,12 +122,8 @@ async def get_user_menu_data(
     return {
         "main_group_label": main_label,
         "subscribed_groups": ", ".join(labels) or "—",
-        "notifications_btn": (
-            "🔕 Выключить уведомления" if enabled else "🔔 Включить уведомления"
-        ),
-        "pin_btn": (
-            "📌 Откреплять расписание" if pin_enabled else "📌 Закреплять расписание"
-        ),
+        "notifications_btn": "🔔 Уведомления" if enabled else "🔕 Уведомления",
+        "pin_btn": "📌 Закреп" if pin_enabled else "📍 Закреп",
         "now_info": now_info,
         "has_now_info": bool(now_info),
     }
@@ -366,11 +362,21 @@ async def on_group_toggled(
     await user_service.set_group_membership(event_from_user.id, int(item_id), checked)
 
 
+@inject
 async def on_pick_main_done(
     call: CallbackQuery,
     button: Button,
     manager: DialogManager,
+    study_group_service: FromDishka[StudyGroupService],
 ) -> None:
+    if _onboarding(manager) and (
+        manager.dialog_data.get("pending_main") is None
+        and await study_group_service.list_groups()
+    ):
+        await call.answer(
+            "⭐ Сначала выберите свою группу", show_alert=True
+        )
+        return
     await manager.switch_to(UserMenuSG.groups)
 
 
@@ -380,13 +386,21 @@ async def on_groups_done(
     button: Button,
     manager: DialogManager,
     user_service: FromDishka[UserService],
+    study_group_service: FromDishka[StudyGroupService],
     notifier: FromDishka[TelegramNotifier],
 ) -> None:
     if _onboarding(manager):
+        pending_main = manager.dialog_data.get("pending_main")
+        if pending_main is None and await study_group_service.list_groups():
+            await call.answer(
+                "⭐ Сначала выберите свою группу", show_alert=True
+            )
+            await manager.switch_to(UserMenuSG.pick_main)
+            return
         user = await user_service.complete_onboarding(
             call.from_user.id,
             call.from_user.username,
-            main_group=manager.dialog_data.get("pending_main"),
+            main_group=pending_main,
             groups=manager.dialog_data.get("pending_groups", []),
         )
         if user is not None:
@@ -399,12 +413,12 @@ def build_user_menu_dialog() -> Dialog:
     return Dialog(
         Window(
             Format(
-                "<b>📅 Timetabler</b>\n\n"
-                "⭐ <b>Моя группа:</b> {main_group_label}\n"
+                "<b>📅 Timetabler</b>\n\n\n"
+                "⭐ <b>Моя группа:</b> {main_group_label}\n\n"
                 "👀 <b>Наблюдаю:</b> {subscribed_groups}"
             ),
             Format("\n\n{now_info}", when=F["has_now_info"]),
-            Const("\n\n<i>powered by <b>kolo</b></i>"),
+            Const("\n\n\n<i>powered by <b>kolo</b></i>"),
             Row(
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
                 Button(Const("📅 Завтра"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
@@ -413,7 +427,7 @@ def build_user_menu_dialog() -> Dialog:
             Button(Format("{pin_btn}"), id="u_pin", on_click=on_toggle_dm_pin),
             Row(
                 SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
-                Button(Const("💬 Мои чаты"), id="u_chats", on_click=on_my_chats),
+                Button(Const("💬 Чаты"), id="u_chats", on_click=on_my_chats),
             ),
             state=UserMenuSG.main,
             getter=get_user_menu_data,
