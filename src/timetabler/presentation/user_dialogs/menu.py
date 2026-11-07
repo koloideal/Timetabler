@@ -122,10 +122,9 @@ async def get_user_menu_data(
     return {
         "main_group_label": main_label,
         "subscribed_groups": ", ".join(labels) or "—",
-        "notifications_btn": "🔔 Уведомления" if enabled else "🔕 Уведомления",
-        "pin_btn": "📌 Закреп" if pin_enabled else "📍 Закреп",
-        "now_info": now_info,
-        "has_now_info": bool(now_info),
+        "notifications_btn": "✅ Уведомления" if enabled else "❌ Уведомления",
+        "pin_btn": "✅ Закреп" if pin_enabled else "❌ Закреп",
+        "now_block": f"\n\n{now_info.replace(chr(10), chr(10) * 2)}" if now_info else "",
     }
 
 
@@ -416,9 +415,9 @@ def build_user_menu_dialog() -> Dialog:
                 "<b>📅 Timetabler</b>\n\n\n"
                 "⭐ <b>Моя группа:</b> {main_group_label}\n\n"
                 "👀 <b>Наблюдаю:</b> {subscribed_groups}"
+                "{now_block}"
             ),
-            Format("\n\n{now_info}", when=F["has_now_info"]),
-            Const("\n\n\n<i>powered by <b>kolo</b></i>"),
+            Const("\n\n<i>powered by <b>kolo</b></i>"),
             Row(
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
                 Button(Const("📅 Завтра"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
@@ -462,7 +461,7 @@ def build_user_menu_dialog() -> Dialog:
                 Const("✖️ Убрать мою группу"),
                 id="main_group_clear",
                 on_click=on_main_group_cleared,
-                when=F["has_main"],
+                when=F["has_main"] & ~F["onboarding"],
             ),
             Button(
                 Const("➡️ Далее"),
