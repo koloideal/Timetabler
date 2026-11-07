@@ -24,7 +24,6 @@ from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.poller import next_study_day, schedule_today
 from timetabler.application.services.revision import RevisionService
-from timetabler.application.services.study_group import StudyGroupService
 from timetabler.domain.schemas import GroupChat
 from timetabler.infrastructure.config.app import AppConfig
 
@@ -73,7 +72,12 @@ async def _current_chat(
 ) -> GroupChat | None:
     chat_id = dialog_manager.dialog_data.get("chat_id")
     if chat_id is None:
+        start_data = dialog_manager.start_data
+        if isinstance(start_data, dict):
+            chat_id = start_data.get("chat_id")
+    if chat_id is None:
         return None
+    dialog_manager.dialog_data["chat_id"] = int(chat_id)
     return await group_chat_service.get_by_id(int(chat_id))
 
 
@@ -106,15 +110,11 @@ async def get_pick_groups_data(
     dialog_manager: DialogManager,
     group_chat_service: FromDishka[GroupChatService],
     revision_service: FromDishka[RevisionService],
-    study_group_service: FromDishka[StudyGroupService],
     **kwargs: object,
 ) -> dict[str, object]:
     chat = await _current_chat(dialog_manager, group_chat_service)
     group_ids = await revision_service.latest_group_ids()
-    aliases = {g.group_id: g.alias for g in await study_group_service.list_groups()}
-    items = [
-        (g, f"{g} — {aliases[g]}" if aliases.get(g) else str(g)) for g in group_ids
-    ]
+    items = [(g, str(g)) for g in group_ids]
     if chat is not None:
         widget = cast(
             ManagedMultiselect[int], dialog_manager.find("chat_groups_ms")

@@ -109,11 +109,11 @@ async def get_user_menu_data(
         for g in await study_group_service.list_groups()
     }
     labels = [
-        f"{g} — {aliases[g]}" if aliases.get(g) else g
+        f"{g} — <i>{aliases[g]}</i>" if aliases.get(g) else g
         for g in sorted(subscribed, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
     ]
     main_label = (
-        f"{main} — {aliases[main]}" if main and aliases.get(main)
+        f"{main} — <i>{aliases[main]}</i>" if main and aliases.get(main)
         else main or "не выбрана"
     )
     enabled = user.notifications_enabled if user else True

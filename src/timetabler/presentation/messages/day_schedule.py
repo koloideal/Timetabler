@@ -2,7 +2,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable
 
-from aiogram.types import InlineKeyboardMarkup, InputRichBlockUnion
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InputRichBlockUnion,
+    RichTextItalic,
+    RichTextUnion,
+)
 
 from timetabler.domain.schemas import DaySchedule
 from timetabler.infrastructure.config.app import AppConfig
@@ -113,14 +118,20 @@ def channel_blocks(
     config: AppConfig,
     is_compact: bool = False,
 ) -> list[InputRichBlockUnion]:
-    parts = [
-        (
-            day.labels[gid],
+    parts = []
+    for gid, group_entries in sorted(day.by_group.items()):
+        label = day.labels[gid]
+        num, sep, alias = label.partition(" — ")
+        summary: RichTextUnion = (
+            [f"{num}{sep}", RichTextItalic(text=alias)]
+            if sep and alias
+            else label
+        )
+        parts.append((
+            summary,
             format_group_schedule_body(
                 day.audiences.get(gid), group_entries, config,
                 is_compact=is_compact,
             ),
-        )
-        for gid, group_entries in sorted(day.by_group.items())
-    ]
+        ))
     return build_channel_blocks(for_date, parts, config)

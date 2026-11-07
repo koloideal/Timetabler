@@ -207,8 +207,14 @@ def format_group_schedule(
     mode: str = "a",
     is_compact: bool = False,
 ) -> list[InputRichBlockUnion]:
+    num, sep, alias = group_label.partition(" — ")
+    heading: RichTextUnion = (
+        [f"🎓 Группа {num}{sep}", RichTextItalic(text=alias)]
+        if sep and alias
+        else f"🎓 Группа {group_label}"
+    )
     return [
-        InputRichBlockSectionHeading(text=f"🎓 Группа {group_label}", size=3),
+        InputRichBlockSectionHeading(text=heading, size=3),
         *format_group_schedule_body(base_audience, lessons, config, mode, is_compact),
     ]
 
@@ -235,7 +241,7 @@ def build_broadcast_blocks(
 
 def build_channel_blocks(
     for_date: date,
-    parts: list[tuple[str, list[InputRichBlockUnion]]],
+    parts: list[tuple[RichTextUnion, list[InputRichBlockUnion]]],
     config: AppConfig,
 ) -> list[InputRichBlockUnion]:
     weekday = config.weekdays_short[for_date.weekday()]

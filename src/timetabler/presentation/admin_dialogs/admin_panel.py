@@ -382,11 +382,8 @@ async def get_groups_list_data(
     **kwargs: object,
 ) -> dict[str, object]:
     groups = await study_group_service.list_groups()
-    groups_alias = [(f"{g.group_id} — {g.alias}", str(g.group_id)) for g in groups if g.alias]
-    groups_plain = [(str(g.group_id), str(g.group_id)) for g in groups if not g.alias]
     return {
-        "groups_alias": groups_alias,
-        "groups_plain": groups_plain,
+        "groups": [(str(g.group_id), str(g.group_id)) for g in groups],
         "total_groups": len(groups),
     }
 
@@ -1025,27 +1022,14 @@ def build_admin_panel_dialog() -> Dialog:
             ScrollingGroup(
                 Select(
                     Format("{item[0]}"),
-                    id="group_select_a",
+                    id="group_select",
                     item_id_getter=lambda x: x[1],
-                    items="groups_alias",
+                    items="groups",
                     on_click=on_group_selected,
                 ),
-                id="groups_alias_scroll",
-                width=1,
-                height=4,
-                hide_on_single_page=True,
-            ),
-            ScrollingGroup(
-                Select(
-                    Format("{item[0]}"),
-                    id="group_select_p",
-                    item_id_getter=lambda x: x[1],
-                    items="groups_plain",
-                    on_click=on_group_selected,
-                ),
-                id="groups_plain_scroll",
+                id="groups_scroll",
                 width=3,
-                height=6,
+                height=7,
                 hide_on_single_page=True,
             ),
             SwitchTo(Const("◀️ Назад"), id="back_main_groups", state=AdminPanelSG.main),
