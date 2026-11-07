@@ -115,13 +115,18 @@ async def get_pick_groups_data(
     chat = await _current_chat(dialog_manager, group_chat_service)
     group_ids = await revision_service.latest_group_ids()
     items = [(g, str(g)) for g in group_ids]
-    if chat is not None:
+    if (
+        chat is not None
+        and dialog_manager.dialog_data.get("chat_groups_for") != chat.chat_id
+    ):
         widget = cast(
             ManagedMultiselect[int], dialog_manager.find("chat_groups_ms")
         )
         widget.widget.set_widget_data(
-            dialog_manager, [g for g in chat.study_groups if g in group_ids]
+            dialog_manager,
+            [str(g) for g in chat.study_groups if g in group_ids],
         )
+        dialog_manager.dialog_data["chat_groups_for"] = chat.chat_id
     return {"groups": items, "has_groups": bool(items)}
 
 
