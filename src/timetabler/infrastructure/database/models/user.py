@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, String, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,9 @@ class User(Base):
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     username: Mapped[str | None] = mapped_column(String, nullable=True)
+    main_group: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("study_groups.group_id", ondelete="SET NULL"), nullable=True
+    )
     is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     groups: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list, server_default="{}")

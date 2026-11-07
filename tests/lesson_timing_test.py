@@ -58,7 +58,35 @@ def test_pe_halves_and_full():
     assert by_pos[1].half == "a" and by_pos[1].end - by_pos[1].start == 2700
     assert by_pos[2].half == "b" and format_range(by_pos[2].start, by_pos[2].end) == "09:50-10:35"
     assert by_pos[3].half == "b" and by_pos[3].slot == 3
-    assert by_pos[4].half == "full" and format_range(by_pos[4].start, by_pos[4].end) == "15:05-16:40"
+    assert by_pos[4].half == "a" and format_range(by_pos[4].start, by_pos[4].end) == "15:05-15:50"
+
+
+def test_two_halves_same_slot():
+    lessons = resolve([
+        e(1, "Кураторский час"),
+        e(1, "Физическая культура"),
+        e(2, "Математика"),
+    ])
+    by_subj = {l.subject: l for l in lessons}
+    kur = by_subj["Кураторский час"]
+    pe = by_subj["Физическая культура"]
+    assert kur.slot == 1 and kur.half == "a"
+    assert format_range(kur.start, kur.end) == "09:00-09:45"
+    assert pe.slot == 1 and pe.half == "b"
+    assert format_range(pe.start, pe.end) == "09:50-10:35"
+    assert by_subj["Математика"].slot == 2
+    assert all("conflict" not in l.flags for l in lessons)
+
+
+def test_explicit_half_plus_untimated_half():
+    lessons = resolve([
+        e(1, "Кураторский час", t=(9, 0)),
+        e(1, "Физическая культура"),
+    ])
+    by_subj = {l.subject: l for l in lessons}
+    pe = by_subj["Физическая культура"]
+    assert pe.slot == 1 and pe.half == "b"
+    assert format_range(pe.start, pe.end) == "09:50-10:35"
 
 
 def test_shift_on_collision():

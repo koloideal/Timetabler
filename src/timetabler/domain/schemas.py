@@ -13,6 +13,7 @@ class User:
     subgroup_mode: str = "a"
     pin_enabled: bool = False
     pinned_message_ids: list[int] = field(default_factory=list)
+    main_group: int | None = None
 
 
 @dataclass

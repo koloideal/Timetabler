@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,7 @@ from aiogram_dialog.widgets.kbd import (
     Multiselect,
     Row,
     ScrollingGroup,
+    Select,
     SwitchTo,
 )
 from aiogram_dialog.widgets.text import Const, Format
@@ -41,18 +42,25 @@ from timetabler.presentation.user_dialogs.group_setup import (
 
 class UserMenuSG(StatesGroup):
     main = State()
+    pick_main = State()
     groups = State()
 
 
+def _onboarding(dialog_manager: DialogManager) -> bool:
+    start_data = dialog_manager.start_data
+    return bool(
+        isinstance(start_data, dict) and start_data.get("onboarding")
+    ) and not dialog_manager.dialog_data.get("onboarding_done")
+
+
 def _user_lessons(day: DaySchedule, user: User) -> list[ResolvedLesson]:
-    group_ids = {int(g) for g in user.groups if g.isdigit()}
     sub = int(user.subgroup_mode) if user.subgroup_mode in ("1", "2") else None
-    return [
-        l
-        for gid in group_ids
-        for l in day.by_group.get(gid, ())
-        if sub is None or l.subgroup in (None, sub)
-    ]
+    if user.main_group is not None:
+        candidates: list[ResolvedLesson] = day.by_group.get(user.main_group, [])
+    else:
+        group_ids = {int(g) for g in user.groups if g.isdigit()}
+        candidates = [l for gid in group_ids for l in day.by_group.get(gid, ())]
+    return [l for l in candidates if sub is None or l.subgroup in (None, sub)]
 
 
 async def _now_info(
@@ -60,18 +68,25 @@ async def _now_info(
     broadcast_service: BroadcastService,
     app_config: AppConfig,
 ) -> str:
-    if user is None or not user.groups:
+    if user is None or (not user.groups and user.main_group is None):
         return ""
     tz = ZoneInfo(app_config.revisions.update_timezone)
     now = datetime.now(tz)
     day = await broadcast_service.day_schedule(now.date())
     now_sec = now.hour * 3600 + now.minute * 60 + now.second
     status = now_status(_user_lessons(day, user), now_sec)
-    tomorrow_first = None
+    next_first = None
+    next_label = "завтра"
     if status.kind in {"done", "empty"}:
-        tomorrow = await broadcast_service.day_schedule(next_study_day(now.date()))
-        tomorrow_first = first_event(_user_lessons(tomorrow, user))
-    return now_status_text(status, tomorrow_first)
+        next_date = next_study_day(now.date())
+        next_day = await broadcast_service.day_schedule(next_date)
+        next_first = first_event(_user_lessons(next_day, user))
+        if next_date != now.date() + timedelta(days=1):
+            next_label = (
+                f"{app_config.weekdays_full[next_date.weekday()]} "
+                f"{next_date.strftime('%d.%m')}"
+            )
+    return now_status_text(status, next_first, next_label)
 
 
 @inject
@@ -85,7 +100,10 @@ async def get_user_menu_data(
 ) -> dict[str, object]:
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
-    subscribed = set(user.groups) if user else set()
+    main = str(user.main_group) if user and user.main_group is not None else None
+    subscribed = {
+        g for g in (user.groups if user else ()) if g != main
+    }
     aliases = {
         str(g.group_id): g.alias
         for g in await study_group_service.list_groups()
@@ -94,10 +112,15 @@ async def get_user_menu_data(
         f"{g} — {aliases[g]}" if aliases.get(g) else g
         for g in sorted(subscribed, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
     ]
+    main_label = (
+        f"{main} — {aliases[main]}" if main and aliases.get(main)
+        else main or "не выбрана"
+    )
     enabled = user.notifications_enabled if user else True
     pin_enabled = user.pin_enabled if user else False
     now_info = await _now_info(user, broadcast_service, app_config)
     return {
+        "main_group_label": main_label,
         "subscribed_groups": ", ".join(labels) or "—",
         "notifications_btn": (
             "🔕 Выключить уведомления" if enabled else "🔔 Включить уведомления"
@@ -152,12 +175,17 @@ async def _show_schedule(
     app_config: AppConfig,
 ) -> None:
     user = await user_service.get_by_id(call.from_user.id)
-    if user is None or not user.groups:
+    if user is None or (not user.groups and user.main_group is None):
         await call.answer("❌ Сначала выберите группы в подписках", show_alert=True)
         return
+    groups = list(user.groups)
+    if user.main_group is not None:
+        groups = [str(user.main_group)] + [
+            g for g in groups if g != str(user.main_group)
+        ]
     day = await broadcast_service.day_schedule(for_date)
     messages = group_messages(
-        day, for_date, user.groups, app_config,
+        day, for_date, groups, app_config,
         mode=user.subgroup_mode, is_compact=True,
     )
     if not messages:
@@ -225,6 +253,49 @@ async def on_my_chats(
 
 
 @inject
+async def get_pick_main_data(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    study_group_service: FromDishka[StudyGroupService],
+    **kwargs: object,
+) -> dict[str, object]:
+    event_from_user = dialog_manager.middleware_data.get("event_from_user")
+    user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
+    groups = await study_group_service.list_groups()
+    return {
+        "groups": [(g.group_id, g.display_name) for g in groups],
+        "has_groups": bool(groups),
+        "has_main": user is not None and user.main_group is not None,
+        "onboarding": _onboarding(dialog_manager),
+    }
+
+
+@inject
+async def on_main_group_picked(
+    call: CallbackQuery,
+    widget: Select,
+    manager: DialogManager,
+    item_id: str,
+    user_service: FromDishka[UserService],
+) -> None:
+    await user_service.set_main_group(call.from_user.id, int(item_id))
+    await call.answer(f"⭐ Ваша группа — {item_id}")
+    await manager.switch_to(UserMenuSG.groups)
+
+
+@inject
+async def on_main_group_cleared(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    user_service: FromDishka[UserService],
+) -> None:
+    await user_service.set_main_group(call.from_user.id, None)
+    await call.answer("⭐ Своя группа убрана")
+    await manager.switch_to(UserMenuSG.groups)
+
+
+@inject
 async def get_user_groups_data(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
@@ -233,20 +304,26 @@ async def get_user_groups_data(
 ) -> dict[str, object]:
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
+    main = str(user.main_group) if user and user.main_group is not None else None
     subscribed = set(user.groups) if user else set()
 
+    groups = await study_group_service.list_groups()
+    items = [g for g in groups if str(g.group_id) != main]
     widget = cast(
         ManagedMultiselect[str], dialog_manager.find("groups_ms")
     )
-    groups = await study_group_service.list_groups()
     widget.widget.set_widget_data(
         dialog_manager,
-        [str(g.group_id) for g in groups if str(g.group_id) in subscribed],
+        [str(g.group_id) for g in items if str(g.group_id) in subscribed],
     )
 
     return {
-        "groups": [(str(g.group_id), str(g.group_id)) for g in groups],
+        "groups": [(str(g.group_id), str(g.group_id)) for g in items],
         "has_groups": bool(groups),
+        "main_btn": (
+            f"⭐ Моя группа: {main}" if main else "⭐ Выбрать свою группу"
+        ),
+        "onboarding": _onboarding(dialog_manager),
     }
 
 
@@ -265,12 +342,30 @@ async def on_group_toggled(
     await user_service.set_group_membership(event_from_user.id, int(item_id), checked)
 
 
+async def on_pick_main_done(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+) -> None:
+    await manager.switch_to(UserMenuSG.groups)
+
+
+async def on_groups_done(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+) -> None:
+    manager.dialog_data["onboarding_done"] = True
+    await manager.switch_to(UserMenuSG.main)
+
+
 def build_user_menu_dialog() -> Dialog:
     return Dialog(
         Window(
             Format(
                 "<b>📅 Timetabler</b>\n\n"
-                "🎓 <b>Вы подписаны:</b> {subscribed_groups}"
+                "⭐ <b>Моя группа:</b> {main_group_label}\n"
+                "👀 <b>Наблюдаю:</b> {subscribed_groups}"
             ),
             Format("\n\n{now_info}", when=F["has_now_info"]),
             Const("\n\n<i>powered by <b>kolo</b></i>"),
@@ -289,12 +384,60 @@ def build_user_menu_dialog() -> Dialog:
         ),
         Window(
             Const(
-                "<b>🎓 Подписки</b>\n\n"
-                "Выберите группы, по которым присылать расписание:",
+                "<b>⭐ Моя группа</b>\n\n"
+                "Выберите свою учебную группу — по ней считаются подсказки "
+                "(какая пара идёт и что дальше):",
                 when=F["has_groups"],
             ),
             Const(
-                "<b>🎓 Подписки</b>\n\n"
+                "<b>⭐ Моя группа</b>\n\n"
+                "Расписание ещё не загружено — групп нет. Попробуйте позже.",
+                when=~F["has_groups"],
+            ),
+            ScrollingGroup(
+                Select(
+                    Format("{item[1]}"),
+                    id="main_group_sel",
+                    item_id_getter=lambda x: str(x[0]),
+                    items="groups",
+                    on_click=on_main_group_picked,
+                ),
+                id="main_group_scroll",
+                width=2,
+                height=8,
+                hide_on_single_page=True,
+                when=F["has_groups"],
+            ),
+            Button(
+                Const("✖️ Убрать мою группу"),
+                id="main_group_clear",
+                on_click=on_main_group_cleared,
+                when=F["has_main"],
+            ),
+            Button(
+                Const("➡️ Далее"),
+                id="main_next",
+                on_click=on_pick_main_done,
+                when=F["onboarding"],
+            ),
+            Button(
+                Const("◀️ Назад"),
+                id="main_back",
+                on_click=on_pick_main_done,
+                when=~F["onboarding"],
+            ),
+            state=UserMenuSG.pick_main,
+            getter=get_pick_main_data,
+        ),
+        Window(
+            Const(
+                "<b>👀 Наблюдаемые группы</b>\n\n"
+                "Отметьте дополнительные группы — по ним тоже будет "
+                "приходить расписание:",
+                when=F["has_groups"],
+            ),
+            Const(
+                "<b>👀 Наблюдаемые группы</b>\n\n"
                 "Расписание ещё не загружено — групп нет. Попробуйте позже.",
                 when=~F["has_groups"],
             ),
@@ -314,7 +457,19 @@ def build_user_menu_dialog() -> Dialog:
                 hide_on_single_page=True,
                 when=F["has_groups"],
             ),
-            SwitchTo(Const("◀️ Назад"), id="u_groups_back", state=UserMenuSG.main),
+            SwitchTo(Format("{main_btn}"), id="u_pick_main", state=UserMenuSG.pick_main),
+            Button(
+                Const("▶️ Продолжить"),
+                id="u_groups_continue",
+                on_click=on_groups_done,
+                when=F["onboarding"],
+            ),
+            Button(
+                Const("◀️ Назад"),
+                id="u_groups_back",
+                on_click=on_groups_done,
+                when=~F["onboarding"],
+            ),
             state=UserMenuSG.groups,
             getter=get_user_groups_data,
         ),

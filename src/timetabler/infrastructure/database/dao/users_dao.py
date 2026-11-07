@@ -142,6 +142,19 @@ class UsersDAO:
             return None
         return self._map_to_domain(orm_user)
 
+    async def set_main_group(self, user_id: int, group_id: int | None) -> User | None:
+        stmt = (
+            update(OrmUser)
+            .where(OrmUser.user_id == user_id)
+            .values(main_group=group_id)
+            .returning(OrmUser)
+        )
+        result = await self.session.execute(stmt)
+        orm_user = result.scalar_one_or_none()
+        if not orm_user:
+            return None
+        return self._map_to_domain(orm_user)
+
     async def set_banned(self, user_id: int, is_banned: bool) -> User | None:
         stmt = (
             update(OrmUser)
@@ -169,4 +182,5 @@ class UsersDAO:
             subgroup_mode=orm_user.subgroup_mode,
             pin_enabled=orm_user.pin_enabled,
             pinned_message_ids=list(orm_user.pinned_message_ids),
+            main_group=orm_user.main_group,
         )

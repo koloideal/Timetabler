@@ -264,26 +264,27 @@ def _subjects_line(subjects: list[str]) -> str:
 
 def now_status_text(
     status: NowStatus,
-    tomorrow_first: tuple[int, list[str]] | None = None,
+    next_first: tuple[int, list[str]] | None = None,
+    next_label: str = "завтра",
 ) -> str:
     if status.kind == "lesson":
         assert status.current_end is not None and status.last_end is not None
-        slot = f" · {status.current_slot}-я пара" if status.current_slot else ""
+        slot = f" ({status.current_slot}-я)" if status.current_slot else ""
         lines = [
             f"⏰ <b>Сейчас{slot}:</b> «{_subjects_line(status.current_subjects)}» "
-            f"— <i>до {format_time(status.current_end)}</i>",
+            f"— до <i>{format_time(status.current_end)}</i>",
         ]
         if status.next_start is not None:
             lines.append(
                 f"➡️ <b>Дальше:</b> «{_subjects_line(status.next_subjects)}» "
-                f"— <i>в {format_time(status.next_start)}</i>"
+                f"— в <i>{format_time(status.next_start)}</i>"
             )
         lines.append(f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>")
         return "\n".join(lines)
     if status.kind == "break":
         assert status.next_start is not None and status.last_end is not None
         return (
-            f"⏸ <b>Перемена до {format_time(status.next_start)}</b>\n"
+            f"⏸ <b>Перемена</b> — до <i>{format_time(status.next_start)}</i>\n"
             f"➡️ <b>Дальше:</b> «{_subjects_line(status.next_subjects)}»\n"
             f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>"
         )
@@ -292,7 +293,7 @@ def now_status_text(
         return (
             "🌅 <b>Пары ещё не начались</b>\n"
             f"▶️ <b>Первая:</b> «{_subjects_line(status.next_subjects)}» "
-            f"— <i>в {format_time(status.next_start)}</i>\n"
+            f"— в <i>{format_time(status.next_start)}</i>\n"
             f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>"
         )
     head = (
@@ -300,15 +301,13 @@ def now_status_text(
         if status.kind == "done"
         else "🛌 <b>Сегодня пар нет</b>"
     )
-    if tomorrow_first is None:
-        if status.kind == "done":
-            return f"{head}\n📅 <i>На завтра расписания пока нет</i>"
-        return head
-    start, subjects = tomorrow_first
+    if next_first is None:
+        return f"{head}\n📅 <i>На {next_label} расписания пока нет</i>"
+    start, subjects = next_first
     return (
         f"{head}\n"
-        f"📅 <b>Завтра:</b> первая в <i>{format_time(start)}</i> "
-        f"— «{_subjects_line(subjects)}»"
+        f"📅 <b>{next_label.capitalize()}:</b> первая в "
+        f"<i>{format_time(start)}</i> — «{_subjects_line(subjects)}»"
     )
 
 

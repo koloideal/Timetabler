@@ -39,8 +39,9 @@ def new_user_router() -> Router:
         if is_new:
             await notifier.notify_new_user(user)
         await dialog_manager.start(
-            UserMenuSG.groups if is_new else UserMenuSG.main,
+            UserMenuSG.pick_main if is_new else UserMenuSG.main,
             mode=StartMode.RESET_STACK,
+            data={"onboarding": True} if is_new else None,
         )
 
         for chat in await group_chat_service.get_pending_for_user(user.user_id):

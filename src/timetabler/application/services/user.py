@@ -39,6 +39,15 @@ class UserService:
             groups.add(str(group_id))
         return await self.users_dao.update_groups(user_id, sorted(groups))
 
+    async def set_main_group(self, user_id: int, group_id: int | None) -> User | None:
+        user = await self.users_dao.get_by_id(user_id)
+        if user is None:
+            return None
+        if group_id is not None and str(group_id) not in user.groups:
+            groups = sorted({*user.groups, str(group_id)})
+            await self.users_dao.update_groups(user_id, groups)
+        return await self.users_dao.set_main_group(user_id, group_id)
+
     async def set_notifications(self, user_id: int, enabled: bool) -> User | None:
         return await self.users_dao.set_notifications(user_id, enabled)
 
