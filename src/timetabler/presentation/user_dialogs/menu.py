@@ -119,9 +119,17 @@ async def get_user_menu_data(
     enabled = user.notifications_enabled if user else True
     pin_enabled = user.pin_enabled if user else False
     now_info = await _now_info(user, broadcast_service, app_config)
+    today = schedule_today(app_config.revisions.update_timezone)
+    next_date = next_study_day(today)
     return {
         "main_group_label": main_label,
-        "subscribed_groups": ", ".join(labels) or "—",
+        "watched_block": (
+            f"\n\n👀 <b>Наблюдаю:</b> {', '.join(labels)}" if labels else ""
+        ),
+        "tomorrow_btn": (
+            "📅 Завтра" if next_date == today + timedelta(days=1)
+            else "📅 Послезавтра"
+        ),
         "notifications_btn": "✅ Уведомления" if enabled else "❌ Уведомления",
         "pin_btn": "✅ Закреп" if pin_enabled else "❌ Закреп",
         "now_block": f"\n\n{now_info.replace(chr(10), chr(10) * 2)}" if now_info else "",
@@ -413,14 +421,14 @@ def build_user_menu_dialog() -> Dialog:
         Window(
             Format(
                 "<b>📅 Timetabler</b>\n\n\n"
-                "⭐ <b>Моя группа:</b> {main_group_label}\n\n"
-                "👀 <b>Наблюдаю:</b> {subscribed_groups}"
+                "⭐ <b>Моя группа:</b> {main_group_label}"
+                "{watched_block}"
                 "{now_block}"
             ),
             Const("\n\n<i>powered by <b>kolo</b></i>"),
             Row(
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
-                Button(Const("📅 Завтра"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
+                Button(Format("{tomorrow_btn}"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
             ),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
             Button(Format("{pin_btn}"), id="u_pin", on_click=on_toggle_dm_pin),
