@@ -262,11 +262,16 @@ async def get_pick_main_data(
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
     groups = await study_group_service.list_groups()
+    onboarding = _onboarding(dialog_manager)
     return {
         "groups": [(g.group_id, str(g.group_id)) for g in groups],
         "has_groups": bool(groups),
-        "has_main": user is not None and user.main_group is not None,
-        "onboarding": _onboarding(dialog_manager),
+        "has_main": (
+            dialog_manager.dialog_data.get("pending_main") is not None
+            if onboarding
+            else user is not None and user.main_group is not None
+        ),
+        "onboarding": onboarding,
     }
 
 
@@ -278,7 +283,10 @@ async def on_main_group_picked(
     item_id: str,
     user_service: FromDishka[UserService],
 ) -> None:
-    await user_service.set_main_group(call.from_user.id, int(item_id))
+    if _onboarding(manager):
+        manager.dialog_data["pending_main"] = int(item_id)
+    else:
+        await user_service.set_main_group(call.from_user.id, int(item_id))
     await call.answer(f"⭐ Ваша группа — {item_id}")
     await manager.switch_to(UserMenuSG.groups)
 
@@ -290,7 +298,10 @@ async def on_main_group_cleared(
     manager: DialogManager,
     user_service: FromDishka[UserService],
 ) -> None:
-    await user_service.set_main_group(call.from_user.id, None)
+    if _onboarding(manager):
+        manager.dialog_data.pop("pending_main", None)
+    else:
+        await user_service.set_main_group(call.from_user.id, None)
     await call.answer("⭐ Своя группа убрана")
     await manager.switch_to(UserMenuSG.groups)
 
@@ -304,8 +315,14 @@ async def get_user_groups_data(
 ) -> dict[str, object]:
     event_from_user = dialog_manager.middleware_data.get("event_from_user")
     user = await user_service.get_by_id(event_from_user.id) if event_from_user else None
-    main = str(user.main_group) if user and user.main_group is not None else None
-    subscribed = set(user.groups) if user else set()
+    onboarding = _onboarding(dialog_manager)
+    if onboarding:
+        pending_main = dialog_manager.dialog_data.get("pending_main")
+        main = str(pending_main) if pending_main is not None else None
+        subscribed = set(dialog_manager.dialog_data.get("pending_groups", ()))
+    else:
+        main = str(user.main_group) if user and user.main_group is not None else None
+        subscribed = set(user.groups) if user else set()
 
     groups = await study_group_service.list_groups()
     items = [g for g in groups if str(g.group_id) != main]
@@ -323,7 +340,7 @@ async def get_user_groups_data(
         "main_btn": (
             f"⭐ Моя группа: {main}" if main else "⭐ Выбрать свою группу"
         ),
-        "onboarding": _onboarding(dialog_manager),
+        "onboarding": onboarding,
     }
 
 
@@ -336,6 +353,13 @@ async def on_group_toggled(
     user_service: FromDishka[UserService],
 ) -> None:
     checked = widget.is_checked(item_id)
+    if _onboarding(manager):
+        pending = set(manager.dialog_data.get("pending_groups", ()))
+        pending.discard(item_id)
+        if checked:
+            pending.add(item_id)
+        manager.dialog_data["pending_groups"] = sorted(pending)
+        return
     event_from_user = manager.middleware_data.get("event_from_user")
     if event_from_user is None:
         return
@@ -350,11 +374,23 @@ async def on_pick_main_done(
     await manager.switch_to(UserMenuSG.groups)
 
 
+@inject
 async def on_groups_done(
     call: CallbackQuery,
     button: Button,
     manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notifier: FromDishka[TelegramNotifier],
 ) -> None:
+    if _onboarding(manager):
+        user = await user_service.complete_onboarding(
+            call.from_user.id,
+            call.from_user.username,
+            main_group=manager.dialog_data.get("pending_main"),
+            groups=manager.dialog_data.get("pending_groups", []),
+        )
+        if user is not None:
+            await notifier.notify_new_user(user)
     manager.dialog_data["onboarding_done"] = True
     await manager.switch_to(UserMenuSG.main)
 

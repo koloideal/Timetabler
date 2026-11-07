@@ -21,6 +21,28 @@ class UserService:
     async def get_by_id(self, user_id: int) -> User | None:
         return await self.users_dao.get_by_id(user_id)
 
+    async def update_username(self, user_id: int, username: str | None) -> User | None:
+        return await self.users_dao.update_username(user_id, username)
+
+    async def complete_onboarding(
+        self,
+        user_id: int,
+        username: str | None,
+        main_group: int | None,
+        groups: list[str],
+    ) -> User | None:
+        user, _ = await self.get_or_create(user_id, username)
+        wanted = set(groups)
+        if main_group is not None:
+            wanted.add(str(main_group))
+        if wanted != set(user.groups):
+            updated = await self.users_dao.update_groups(user_id, sorted(wanted))
+            assert updated is not None
+            user = updated
+        if main_group is not None and user.main_group != main_group:
+            return await self.users_dao.set_main_group(user_id, main_group)
+        return user
+
     async def get_by_username(self, username: str) -> User | None:
         return await self.users_dao.get_by_username(username)
 

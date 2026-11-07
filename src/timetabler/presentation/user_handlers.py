@@ -18,7 +18,6 @@ from timetabler.presentation.messages import (
     note_blocks,
     subgroup_markup_mode,
 )
-from timetabler.presentation.telegram import TelegramNotifier
 from timetabler.presentation.user_dialogs import GroupSetupSG, UserMenuSG
 from timetabler.presentation.user_dialogs.group_setup import is_chat_admin
 
@@ -32,19 +31,24 @@ def new_user_router() -> Router:
         dialog_manager: DialogManager,
         user_service: FromDishka[UserService],
         group_chat_service: FromDishka[GroupChatService],
-        notifier: FromDishka[TelegramNotifier],
     ) -> None:
         assert message.from_user is not None
-        user, is_new = await user_service.get_or_create(message.from_user.id, message.from_user.username)
-        if is_new:
-            await notifier.notify_new_user(user)
+        user = await user_service.get_by_id(message.from_user.id)
+        if (
+            user is not None
+            and message.from_user.username is not None
+            and user.username != message.from_user.username
+        ):
+            user = await user_service.update_username(
+                message.from_user.id, message.from_user.username
+            )
         await dialog_manager.start(
-            UserMenuSG.pick_main if is_new else UserMenuSG.main,
+            UserMenuSG.pick_main if user is None else UserMenuSG.main,
             mode=StartMode.RESET_STACK,
-            data={"onboarding": True} if is_new else None,
+            data={"onboarding": True} if user is None else None,
         )
 
-        for chat in await group_chat_service.get_pending_for_user(user.user_id):
+        for chat in await group_chat_service.get_pending_for_user(message.from_user.id):
             await message.answer(
                 f"👋 Вы добавили меня в «{chat.title or chat.chat_id}».\n\n"
                 "Настроить расписание сейчас?",
