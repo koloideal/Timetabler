@@ -11,11 +11,13 @@ class UserService:
         if user is not None:
             if username is not None and user.username != username:
                 user = await self.users_dao.update_username(user_id, username)
-            assert user is not None
+            if user is None:
+                raise RuntimeError(f"update_username returned None for {user_id}")
             return user, False
 
         user = await self.users_dao.create(user_id, username)
-        assert user is not None
+        if user is None:
+            raise RuntimeError(f"create returned None for {user_id}")
         return user, True
 
     async def get_by_id(self, user_id: int) -> User | None:
@@ -37,7 +39,8 @@ class UserService:
             wanted.add(str(main_group))
         if wanted != set(user.groups):
             updated = await self.users_dao.update_groups(user_id, sorted(wanted))
-            assert updated is not None
+            if updated is None:
+                raise RuntimeError(f"update_groups returned None for {user_id}")
             user = updated
         if main_group is not None and user.main_group != main_group:
             return await self.users_dao.set_main_group(user_id, main_group)

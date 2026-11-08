@@ -77,7 +77,6 @@ async def _current_chat(
             chat_id = start_data.get("chat_id")
     if chat_id is None:
         return None
-    dialog_manager.dialog_data["chat_id"] = int(chat_id)
     return await group_chat_service.get_by_id(int(chat_id))
 
 
@@ -93,12 +92,6 @@ async def get_chats_list_data(
         return {"chats": [], "has_chats": False}
 
     chats = await manageable_chats(bot, group_chat_service, user.id)
-    if len(chats) == 1:
-        dialog_manager.dialog_data["chat_id"] = chats[0].chat_id
-        await dialog_manager.switch_to(
-            GroupSetupSG.settings if chats[0].study_groups else GroupSetupSG.pick_groups
-        )
-        return {"chats": [], "has_chats": True}
     return {
         "chats": [(str(c.chat_id), _chat_label(c)) for c in chats],
         "has_chats": bool(chats),

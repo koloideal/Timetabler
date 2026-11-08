@@ -80,8 +80,8 @@ class SheetsPoller:
                     if revision is not None:
                         approved.append(revision)
 
-        for revision in approved:
-            await broadcast_service.publish_revision(revision)
+            for revision in approved:
+                await broadcast_service.publish_revision(revision)
 
         return poll_interval
 

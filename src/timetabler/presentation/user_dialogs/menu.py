@@ -354,6 +354,7 @@ async def on_group_toggled(
     manager: DialogManager,
     item_id: str,
     user_service: FromDishka[UserService],
+    broadcast_service: FromDishka[BroadcastService],
 ) -> None:
     checked = widget.is_checked(item_id)
     if _onboarding(manager):
@@ -367,6 +368,10 @@ async def on_group_toggled(
     if event_from_user is None:
         return
     await user_service.set_group_membership(event_from_user.id, int(item_id), checked)
+    if not checked:
+        await broadcast_service.drop_user_group_messages(
+            event_from_user.id, int(item_id)
+        )
 
 
 @inject

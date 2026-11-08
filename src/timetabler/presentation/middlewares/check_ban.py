@@ -1,3 +1,4 @@
+from time import monotonic
 from typing import Awaitable, Callable, cast
 
 from aiogram import BaseMiddleware
@@ -8,6 +9,11 @@ from timetabler.application.services.user import UserService
 
 
 class CheckBanMiddleware(BaseMiddleware):
+    _TTL_SECONDS = 60
+
+    def __init__(self) -> None:
+        self._cache: dict[int, tuple[bool, float]] = {}
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, object]], Awaitable[object]],
@@ -29,10 +35,16 @@ class CheckBanMiddleware(BaseMiddleware):
         if not user_id:
             return await handler(event, data)
 
-        container = cast(AsyncContainer, data["dishka_container"])
-        user_service: UserService = await container.get(UserService)
+        cached = self._cache.get(user_id)
+        if cached is not None and cached[1] > monotonic():
+            banned = cached[0]
+        else:
+            container = cast(AsyncContainer, data["dishka_container"])
+            user_service: UserService = await container.get(UserService)
+            banned = await user_service.is_banned(user_id)
+            self._cache[user_id] = (banned, monotonic() + self._TTL_SECONDS)
 
-        if await user_service.is_banned(user_id):
+        if banned:
             message_text = "🔒 Вы заблокированы"
 
             if update.message:

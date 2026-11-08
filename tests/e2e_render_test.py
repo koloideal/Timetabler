@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time as dtime
 
 from timetabler.application.services.lesson_timing import LessonTimingResolver
 from timetabler.domain.schemas import ParsedTimetable, TimetableEntry
@@ -15,7 +15,7 @@ D = date(2026, 11, 4)
 def e(pos, subject="Предмет", teacher=None, aud=None, t=None, sg=None, gid=2124):
     return TimetableEntry(
         group_id=gid, date=D, position=pos, subject=subject, teacher=teacher,
-        audience=aud, starts_at=t and __import__('datetime').time(*t), subgroup=sg,
+        audience=aud, starts_at=t and dtime(*t), subgroup=sg,
     )
 
 

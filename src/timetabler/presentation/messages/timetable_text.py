@@ -274,7 +274,8 @@ def now_status_text(
     next_label: str = "завтра",
 ) -> str:
     if status.kind == "lesson":
-        assert status.current_end is not None and status.last_end is not None
+        if status.current_end is None or status.last_end is None:
+            raise RuntimeError("inconsistent NowStatus for lesson")
         slot = f" ({status.current_slot}-я)" if status.current_slot else ""
         lines = [
             f"⏰ <b>Сейчас{slot}:</b> «{_subjects_line(status.current_subjects)}» "
@@ -288,14 +289,16 @@ def now_status_text(
         lines.append(f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>")
         return "\n".join(lines)
     if status.kind == "break":
-        assert status.next_start is not None and status.last_end is not None
+        if status.next_start is None or status.last_end is None:
+            raise RuntimeError("inconsistent NowStatus for break")
         return (
             f"⏸ <b>Перемена</b> — до <i>{format_time(status.next_start)}</i>\n"
             f"➡️ <b>Дальше:</b> «{_subjects_line(status.next_subjects)}»\n"
             f"🏁 <b>Конец пар:</b> <i>{format_time(status.last_end)}</i>"
         )
     if status.kind == "before":
-        assert status.next_start is not None and status.last_end is not None
+        if status.next_start is None or status.last_end is None:
+            raise RuntimeError("inconsistent NowStatus for before")
         return (
             "🌅 <b>Пары ещё не начались</b>\n"
             f"▶️ <b>Первая:</b> «{_subjects_line(status.next_subjects)}» "

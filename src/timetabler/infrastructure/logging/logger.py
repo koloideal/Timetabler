@@ -14,7 +14,8 @@ def setup_logging(path_to_config: str) -> None:
 
     logging.config.dictConfig(config)
     queue_handler: Handler | None = logging.getHandlerByName("queue_handler")
-    if isinstance(queue_handler, QueueHandler):
-        assert isinstance(queue_handler.listener, QueueListener)
+    if isinstance(queue_handler, QueueHandler) and isinstance(
+        queue_handler.listener, QueueListener
+    ):
         queue_handler.listener.start()
         atexit.register(queue_handler.listener.stop)

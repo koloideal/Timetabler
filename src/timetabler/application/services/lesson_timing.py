@@ -205,7 +205,8 @@ class LessonTimingResolver:
         full_slots: set[int],
         taken_halves: dict[int, set[str]],
     ) -> ResolvedLesson:
-        assert entry.starts_at is not None
+        if entry.starts_at is None:
+            raise RuntimeError("_explicit called with untimed entry")
         weekday = for_date.weekday()
         t = entry.starts_at.hour * 3600 + entry.starts_at.minute * 60 + entry.starts_at.second
         kind = self._kind(entry.subject)
@@ -263,7 +264,7 @@ class LessonTimingResolver:
             flags.add("no_slot")
             return self._lesson(
                 group_id, for_date, subgroup, entry, kind,
-                None, "full", None, None, frozenset(flags),
+                None, "a" if is_half else "full", None, None, frozenset(flags),
             )
         if s != nominal:
             flags.add("shifted")

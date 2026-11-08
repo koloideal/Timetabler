@@ -96,6 +96,8 @@ class GridScheduleParser:
 
         if not any(sets[1][1:]):
             sets = [(None, *sets[0][1:])]
+        elif not any(sets[0][1:]):
+            sets = [sets[1]]
 
         return [
             TimetableEntry(

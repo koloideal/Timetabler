@@ -32,7 +32,8 @@ def new_user_router() -> Router:
         user_service: FromDishka[UserService],
         group_chat_service: FromDishka[GroupChatService],
     ) -> None:
-        assert message.from_user is not None
+        if message.from_user is None:
+            return
         user = await user_service.get_by_id(message.from_user.id)
         if (
             user is not None
@@ -64,7 +65,8 @@ def new_user_router() -> Router:
         if message.chat.type != "private":
             await message.answer(app_config.group_help)
             return
-        assert message.from_user is not None
+        if message.from_user is None:
+            return
         if message.from_user.id == config.bot.creator_id:
             await message.answer(app_config.creator_help)
         else:

@@ -749,7 +749,8 @@ async def on_schedule_all_groups(
 async def _send_schedule_xlsx(
     call: CallbackQuery, for_date: date, sheets_service: SheetsService
 ) -> None:
-    assert call.bot is not None and call.from_user is not None
+    if call.bot is None or call.from_user is None:
+        return
     status_msg = None
     if isinstance(call.message, Message):
         status_msg = await call.message.answer("⏳ Генерирую XLSX...")

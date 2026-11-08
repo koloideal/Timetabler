@@ -328,6 +328,20 @@ class BroadcastService:
             await self._apply_user_pins(user, sent_now)
         return ok
 
+    async def drop_user_group_messages(self, user_id: int, group_id: int) -> None:
+        user = await self.users_dao.get_by_id(user_id)
+        for m in await self.sent_messages_dao.get_for_user_group(
+            user_id, str(group_id)
+        ):
+            await self.sender.delete_message(user_id, m.message_id)
+            await self.sent_messages_dao.remove(m.id)
+            if user is not None and m.message_id in user.pinned_message_ids:
+                await self.sender.unpin_chat_message(user_id, m.message_id)
+                await self.users_dao.set_pinned_messages(
+                    user_id,
+                    [mid for mid in user.pinned_message_ids if mid != m.message_id],
+                )
+
     async def deliver_to_chat(
         self, chat: GroupChat, for_date: date, day: DaySchedule | None = None
     ) -> str:
@@ -366,8 +380,10 @@ class BroadcastService:
                 delivery = await self.sender.send_chat_schedule(
                     chat.chat_id, for_date, day, group_id, note
                 )
-            if delivery.failed or delivery.migrate_to is not None:
+            if delivery.forbidden or delivery.migrate_to is not None:
                 await self._disable_chat(chat)
+                return "failed"
+            if delivery.failed:
                 return "failed"
             if delivery.message_id is None:
                 continue

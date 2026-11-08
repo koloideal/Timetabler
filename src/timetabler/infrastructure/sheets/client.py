@@ -58,8 +58,12 @@ class GoogleSheetsClient:
                 spreadsheet_id, a1_range, attempt + 1, self.config.max_attempts,
             )
             try:
-                assert self._values is not None
-                request = self._values.get(spreadsheetId=spreadsheet_id, range=a1_range)
+                if self._values is not None:
+                    request = self._values.get(
+                        spreadsheetId=spreadsheet_id, range=a1_range
+                    )
+                else:
+                    raise RuntimeError("Sheets values resource not initialised")
                 response = await asyncio.to_thread(request.execute)
             except HttpError as e:
                 if e.status_code == 404:
@@ -108,7 +112,8 @@ class GoogleSheetsClient:
         self._ensure_configured()
         self._logger.info("Sheets export xlsx: %s", spreadsheet_id)
         try:
-            assert self._files is not None
+            if self._files is None:
+                raise RuntimeError("Sheets files resource not initialised")
             request = self._files.export_media(
                 fileId=spreadsheet_id,
                 mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

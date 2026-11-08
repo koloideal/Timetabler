@@ -66,6 +66,29 @@ def _a1_indexes(ref: str) -> tuple[int, int] | None:
     return int(m.group(2)) - 1, col - 1
 
 
+def _a1_col(idx: int) -> str:
+    out = ""
+    idx += 1
+    while idx:
+        idx, rem = divmod(idx - 1, 26)
+        out = chr(ord("A") + rem) + out
+    return out
+
+
+def _widened_range(a1_range: str, cell: str) -> str:
+    bounds = re.fullmatch(r"([A-Za-z]+\d+):([A-Za-z]+\d+)", a1_range)
+    target = _a1_indexes(cell)
+    if not bounds or target is None:
+        return a1_range
+    r0 = _a1_indexes(bounds.group(1))
+    r1 = _a1_indexes(bounds.group(2))
+    if not r0 or not r1:
+        return a1_range
+    row0, col0 = min(r0[0], target[0]), min(r0[1], target[1])
+    row1, col1 = max(r1[0], target[0]), max(r1[1], target[1])
+    return f"{_a1_col(col0)}{row0 + 1}:{_a1_col(col1)}{row1 + 1}"
+
+
 def _cell_in_grid(
     values: list[list[object]], a1_range: str, cell: str
 ) -> object | None:
@@ -246,8 +269,9 @@ class DetectionService:
             return None
 
         settings = await self.settings_service.get_sheets_settings()
+        fetch_range = _widened_range(settings.schedule_range, settings.date_cell)
         values = await self.sheets_client.read_values(
-            source.spreadsheet_id, settings.schedule_range
+            source.spreadsheet_id, fetch_range
         )
         content_hash = _grid_hash(values)
 
@@ -273,7 +297,7 @@ class DetectionService:
                 return await self._settle(settling)
             return None
 
-        raw_marker = _cell_in_grid(values, settings.schedule_range, settings.date_cell)
+        raw_marker = _cell_in_grid(values, fetch_range, settings.date_cell)
         if raw_marker is None:
             marker = await self._read_marker(source.spreadsheet_id, settings.date_cell)
         else:
@@ -302,6 +326,8 @@ class DetectionService:
             await self.revision_service.get_entries(published.id) if published else []
         )
         if not self._is_sane(parsed, parent_entries):
+            if len(self._insane_hashes) > 500:
+                self._insane_hashes.clear()
             self._insane_hashes.add(content_hash)
             self._logger.warning(
                 "Detected insane document for %s (empty or groups dropped), skipping",
@@ -330,7 +356,9 @@ class DetectionService:
     ) -> Revision | None:
         kind = "new" if published is None or marker != published.header else "edit"
         if kind == "edit":
-            assert published is not None
+            if published is None:
+                self._logger.error("edit kind without published for %s", for_date)
+                return None
             changed, diff = compute_diff(parent_entries, published.base_audiences, parsed)
             if not changed:
                 self._logger.info("Formatting-only change for %s, skipped", for_date)
@@ -368,7 +396,11 @@ class DetectionService:
     ) -> Revision | None:
         kind = "new" if published is None or marker != published.header else "edit"
         if kind == "edit":
-            assert published is not None
+            if published is None:
+                self._logger.error(
+                    "edit kind without published for %s", settling.for_date
+                )
+                return None
             changed, diff = compute_diff(parent_entries, published.base_audiences, parsed)
             if not changed:
                 await self.revision_service.delete(settling.id)

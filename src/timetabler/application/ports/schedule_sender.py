@@ -10,6 +10,7 @@ class ChatDelivery:
     message_id: int | None = None
     migrate_to: int | None = None
     failed: bool = False
+    forbidden: bool = False
 
 
 class ScheduleSender(Protocol):

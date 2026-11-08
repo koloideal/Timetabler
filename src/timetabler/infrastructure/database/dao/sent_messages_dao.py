@@ -23,6 +23,16 @@ class SentMessagesDAO:
         result = await self.session.execute(query)
         return [self._map_to_domain(m) for m in result.scalars().all()]
 
+    async def get_for_user_group(
+        self, chat_id: int, group: str
+    ) -> list[SentMessage]:
+        query = select(OrmSentMessage).where(
+            OrmSentMessage.chat_id == chat_id,
+            OrmSentMessage.groups.contains([group]),
+        )
+        result = await self.session.execute(query)
+        return [self._map_to_domain(m) for m in result.scalars().all()]
+
     async def get_for_revision(self, revision_id: int, chat_id: int) -> list[SentMessage]:
         query = select(OrmSentMessage).where(
             OrmSentMessage.revision_id == revision_id,

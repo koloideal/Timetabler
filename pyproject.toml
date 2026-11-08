@@ -32,7 +32,7 @@ dev = [
 line-length = 110
 
 [tool.isort]
-line_length = 90
+line_length = 110
 
 [build-system]
 requires = ["uv_build"]

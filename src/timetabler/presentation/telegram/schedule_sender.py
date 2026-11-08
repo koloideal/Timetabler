@@ -113,7 +113,9 @@ class TelegramScheduleSender(ScheduleSender):
             return ChatDelivery(message_id=message.message_id)
         except TelegramMigrateToChat as e:
             return ChatDelivery(migrate_to=e.migrate_to_chat_id)
-        except (TelegramForbiddenError, TelegramBadRequest):
+        except TelegramForbiddenError:
+            return ChatDelivery(failed=True, forbidden=True)
+        except TelegramBadRequest:
             return ChatDelivery(failed=True)
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
