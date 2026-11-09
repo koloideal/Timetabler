@@ -110,7 +110,10 @@ def _cell_in_grid(
 
 
 def parse_header_date(marker: str, formats: tuple[str, ...]) -> date | None:
-    for candidate in re.findall(r"\d{1,4}[.\-/]\d{1,2}[.\-/]\d{1,4}", marker):
+    for match in re.findall(
+        r"\d{1,4}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,4}", marker
+    ):
+        candidate = re.sub(r"\s+", "", match)
         for fmt in formats:
             try:
                 return datetime.strptime(candidate, fmt).date()

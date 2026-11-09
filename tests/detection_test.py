@@ -22,3 +22,10 @@ def test_parse_header_date_no_date():
 
 def test_parse_header_date_short_year_not_matched():
     assert parse_header_date("на 05.11.26", FORMATS) is None
+
+
+def test_parse_header_date_spaces_inside():
+    assert parse_header_date(
+        "РАСПИСАНИЕ ЗАНЯТИЙ НА 10 .11.2026", FORMATS
+    ) == date(2026, 11, 10)
+    assert parse_header_date("на 2026- 11 - 05", FORMATS) == date(2026, 11, 5)

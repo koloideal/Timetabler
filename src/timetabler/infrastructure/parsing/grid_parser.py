@@ -24,7 +24,7 @@ class GridScheduleParser:
             if label is not None:
                 match = self._group_re.match(label)
                 if match:
-                    group_id = int(match.group(1))
+                    group_id = int(re.sub(r"\s+", "", match.group(1)))
                     base_audience = self._text(match.group(2))
                     if base_audience:
                         parsed.base_audiences.setdefault(group_id, base_audience)
@@ -65,9 +65,10 @@ class GridScheduleParser:
         text = self._text(raw)
         if text is None:
             return None
-        moved = re.search(r"[сc]\s*(\d{1,2}:\d{2})", text)
-        candidates = re.findall(r"\d{1,2}:\d{2}", text)
+        moved = re.search(r"[сc]\s*(\d{1,2}\s*:\s*\d{2})", text)
+        candidates = re.findall(r"\d{1,2}\s*:\s*\d{2}", text)
         for candidate in ([moved.group(1)] if moved else []) + candidates:
+            candidate = re.sub(r"\s+", "", candidate)
             try:
                 return datetime.strptime(candidate, self.config.time_format).time()
             except ValueError:

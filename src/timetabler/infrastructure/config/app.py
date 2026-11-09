@@ -10,7 +10,7 @@ class GridParserConfig:
     subject_col: int = 2
     # (subgroup, time, teacher, audience)
     subgroup_sets: tuple[tuple[int, int, int, int], ...] = ((1, 3, 4, 5), (2, 6, 7, 8))
-    group_pattern: str = r"^\s*(\d{3,4})\s*(?:,\s*ауд\.?\s*(.+?))?\s*$"
+    group_pattern: str = r"^\s*(\d(?:\s*\d){2,3})\s*(?:,\s*ауд\.?\s*(.+?))?\s*$"
     skipped_cell_values: tuple[str, ...] = ("", "-", "—")
 
 
