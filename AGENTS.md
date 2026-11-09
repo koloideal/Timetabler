@@ -27,7 +27,7 @@ just migrate       # alembic upgrade head
 ## Ключевые инварианты
 
 - **Ревизии**: `settling → approved → published` (или `pending_approval` при require_confirmation). `edit` требует `stable_polls` стабильных поллов или `max_settle_seconds`; `new` сеттлится сразу. `replace_snapshot` сбрасывает `stable_polls` — не ломать.
-- **Полупары** (`kind` pe/kur): слот делится на `a`/`b`, занятость трекается по половинам (`full_slots` + `taken_halves`). Порядок a/b для безвременных полупар определяется порядком строк в таблице.
+- **Полупары** (`kind` pe/kur): явное время → половина `a`/`b` слота. Без времени — полная пара, КРОМЕ случая когда в том же nominal-слоте есть ещё полупара (явная или безвременная): тогда делят слот, a/b по порядку строк. Занятость трекается по половинам (`full_slots` + `taken_halves` + `half_partners`).
 - **Парсер**: строка с данными только у sg2 → entry только для sg2; sg2 пуст → целая группа `(None, *sg1)`.
 - **Идемпотентность рассылки**: `deliveries` (unique per revision+kind+chat) + `sent_messages` (dedup по группам). Повторный `_publish` не дублирует.
 - **Telegram-ошибки**: `TelegramForbiddenError`/migrate → `forbidden=True` → чат дизейблится; `TelegramBadRequest` → `failed`, чат НЕ дизейблится.

@@ -154,6 +154,11 @@ class LessonTimingResolver:
     ) -> list[ResolvedLesson]:
         full_slots: set[int] = set()
         taken_halves: dict[int, set[str]] = {}
+        half_partners: dict[int, int] = {}
+        for e in entries:
+            if self._kind(e.subject) != "lesson":
+                nominal = (e.position - 1) if e.position else -1
+                half_partners[nominal] = half_partners.get(nominal, 0) + 1
         lessons: list[ResolvedLesson] = []
         for e in entries:
             if e.starts_at is not None:
@@ -168,7 +173,7 @@ class LessonTimingResolver:
                 lessons.append(
                     self._untimed(
                         group_id, for_date, subgroup, e, slots,
-                        full_slots, taken_halves,
+                        full_slots, taken_halves, half_partners,
                     )
                 )
         lessons.sort(key=lambda l: (l.start is None, l.start or 0))
@@ -246,22 +251,46 @@ class LessonTimingResolver:
         slots: tuple[LessonSlotConfig, ...],
         full_slots: set[int],
         taken_halves: dict[int, set[str]],
+        half_partners: dict[int, int],
     ) -> ResolvedLesson:
         nominal = (entry.position - 1) if entry.position else -1
         s = nominal if nominal >= 0 else 0
         kind = self._kind(entry.subject)
+        is_half = kind != "lesson" and half_partners.get(nominal, 0) >= 2
         flags: set[str] = set()
-        while s < len(slots) and (s in full_slots or taken_halves.get(s)):
-            s += 1
+        if is_half:
+            while s < len(slots) and (
+                s in full_slots or len(taken_halves.get(s, ())) >= 2
+            ):
+                s += 1
+        else:
+            while s < len(slots) and (s in full_slots or taken_halves.get(s)):
+                s += 1
         if s >= len(slots) or nominal < 0:
             flags.add("no_slot")
             return self._lesson(
                 group_id, for_date, subgroup, entry, kind,
-                None, "full", None, None, frozenset(flags),
+                None, "a" if is_half else "full", None, None, frozenset(flags),
             )
         if s != nominal:
             flags.add("shifted")
         start, end = _slot_seconds(slots[s])
+        weekday = for_date.weekday()
+        if is_half:
+            slot = slots[s]
+            half = "a" if "a" not in taken_halves.get(s, ()) else "b"
+            taken_halves.setdefault(s, set()).add(half)
+            half_b = parse_time(slot.half_b_start) if slot.half_b_start else None
+            h_start = (
+                start if half == "a"
+                else half_b or (start + self._half_len(weekday, slot))
+            )
+            return self._lesson(
+                group_id, for_date, subgroup, entry, kind,
+                s + 1, half, h_start,
+                h_start + self._half_len(weekday, slots[s]),
+                frozenset(flags),
+            )
         full_slots.add(s)
         return self._lesson(
             group_id, for_date, subgroup, entry, kind,
