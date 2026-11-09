@@ -5,6 +5,7 @@ from time import monotonic
 from zoneinfo import ZoneInfo
 
 from dishka import AsyncContainer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from timetabler.application.exceptions import TimetableParseError
 from timetabler.application.services.broadcast import BroadcastService
@@ -80,6 +81,7 @@ class SheetsPoller:
                     if revision is not None:
                         approved.append(revision)
 
+            await (await scope.get(AsyncSession)).commit()
             for revision in approved:
                 await broadcast_service.publish_revision(revision)
 
