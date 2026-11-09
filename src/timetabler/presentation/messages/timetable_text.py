@@ -21,7 +21,10 @@ from timetabler.infrastructure.config.app import AppConfig
 
 
 def _details_text(lesson: ResolvedLesson, base_audience: str | None) -> RichTextUnion:
-    aud = lesson.audience or base_audience
+    aud = (
+        "—" if lesson.kind == "pe"
+        else lesson.audience or base_audience
+    )
     rng = format_range(lesson.start, lesson.end) if lesson.start is not None else None
     if aud and rng:
         return [f"{aud} · ", RichTextItalic(text=rng)]
@@ -95,7 +98,10 @@ def _lesson_row(
     return [
         _cell(RichTextBold(text=label) if label else ""),
         _cell(subject, align="left"),
-        _cell(lesson.audience or base_audience or "—"),
+        _cell(
+            "—" if lesson.kind == "pe"
+            else lesson.audience or base_audience or "—"
+        ),
         _cell(RichTextItalic(text=format_range(lesson.start, lesson.end))),
         _cell(lesson.teacher or "—", align="left"),
     ]
