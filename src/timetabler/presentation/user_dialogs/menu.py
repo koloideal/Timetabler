@@ -437,14 +437,12 @@ def build_user_menu_dialog() -> Dialog:
                 Button(Const("📅 Сегодня"), id="u_sched_today", on_click=on_show_today),
                 Button(Format("{tomorrow_btn}"), id="u_sched_tomorrow", on_click=on_show_tomorrow),
             ),
-            Row(
-                Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
-                Button(Format("{pin_btn}"), id="u_pin", on_click=on_toggle_dm_pin),
-            ),
+            Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
             Row(
                 SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
                 Button(Const("💬 Чаты"), id="u_chats", on_click=on_my_chats),
             ),
+            Button(Format("{pin_btn}"), id="u_pin", on_click=on_toggle_dm_pin),
             state=UserMenuSG.main,
             getter=get_user_menu_data,
         ),
