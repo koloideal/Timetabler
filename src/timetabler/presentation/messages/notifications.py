@@ -18,6 +18,7 @@ from timetabler.infrastructure.config.app import AppConfig
 
 _MAX_DIFF_GROUPS = 10
 _MAX_DIFF_ROWS = 40
+_OPEN_DIFF_ROWS = 12
 
 
 def revision_approval_markup(revision_id: int) -> InlineKeyboardMarkup:
@@ -99,7 +100,7 @@ def _diff_table(lines: list[DiffLine]) -> InputRichBlockTable:
 
 
 def revision_approval_blocks(
-    revision: Revision, config: AppConfig
+    revision: Revision, config: AppConfig, *, ask: bool = True
 ) -> list[InputRichBlockUnion]:
     kind = "новое расписание" if revision.kind == "new" else "правка"
     weekday = config.weekdays_short[revision.weekday]
@@ -109,19 +110,27 @@ def revision_approval_blocks(
         return InputRichBlockParagraph(text=[RichTextBold(text=label), f" {value}"])
 
     blocks: list[InputRichBlockUnion] = [
-        InputRichBlockSectionHeading(text=f"📝 Ревизия #{revision.id}", size=2),
+        InputRichBlockSectionHeading(
+            text=(
+                f"📝 Ревизия #{revision.id}" if ask
+                else f"🔄 Расписание обновлено · #{revision.id}"
+            ),
+            size=2,
+        ),
         field("День:", f"{revision.for_date.strftime('%d.%m.%Y')} ({weekday})"),
         field("Тип:", kind),
         field("Группы:", changed),
     ]
     if revision.diff:
         groups = sorted(revision.diff)
+        total_rows = sum(len(lines) for lines in revision.diff.values())
+        is_open = not ask and total_rows <= _OPEN_DIFF_ROWS
         for group_id in groups[:_MAX_DIFF_GROUPS]:
             blocks.append(
                 InputRichBlockDetails(
                     summary=f"🎓 Группа {group_id}",
                     blocks=[_diff_table(revision.diff[group_id])],
-                    is_open=False,
+                    is_open=is_open,
                 )
             )
         if len(groups) > _MAX_DIFF_GROUPS:
@@ -130,6 +139,7 @@ def revision_approval_blocks(
                     text=f"… и ещё {len(groups) - _MAX_DIFF_GROUPS} групп"
                 )
             )
-    blocks.append(InputRichBlockDivider())
-    blocks.append(InputRichBlockParagraph(text=RichTextBold(text="Опубликовать?")))
+    if ask:
+        blocks.append(InputRichBlockDivider())
+        blocks.append(InputRichBlockParagraph(text=RichTextBold(text="Опубликовать?")))
     return blocks

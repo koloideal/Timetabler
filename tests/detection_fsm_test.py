@@ -131,9 +131,13 @@ class FakeSheetsService:
 class FakeNotifier:
     def __init__(self):
         self.approvals = []
+        self.updates = []
 
     async def ask_revision_approval(self, revision):
         self.approvals.append(revision)
+
+    async def notify_revision_update(self, revision):
+        self.updates.append(revision)
 
 
 class FakeRevisionService:
@@ -238,6 +242,7 @@ async def _test_new_revision_auto_approved():
     assert rev.status == "approved"
     assert rev.kind == "new"
     assert notifier.approvals == []
+    assert [r.id for r in notifier.updates] == [rev.id]
     assert await service.poll_day(FOR_DATE) is None
 
 
@@ -252,7 +257,7 @@ async def _test_edit_settles_after_stable_polls():
         1, "published", header=_normalize_cell(MARKER), content_hash="old"
     )
     parsed = ParsedTimetable(entries=[_entry("Физика")])
-    service, revs, _ = make_service(
+    service, revs, notifier = make_service(
         values, parsed, published=published,
         published_entries=[_lesson("Математика")],
     )
@@ -270,6 +275,7 @@ async def _test_edit_settles_after_stable_polls():
     approved = await service.poll_day(FOR_DATE)
     assert approved is not None
     assert approved.status == "approved"
+    assert [r.id for r in notifier.updates] == [approved.id]
 
 
 def test_refresh_resets_stable_polls():
@@ -349,6 +355,7 @@ async def _test_require_confirmation_goes_to_pending():
     rev = next(iter(revs.revisions.values()))
     assert rev.status == "pending_approval"
     assert len(notifier.approvals) == 1
+    assert notifier.updates == []
 
 
 def test_header_text_change_with_same_date_is_edit_not_new():

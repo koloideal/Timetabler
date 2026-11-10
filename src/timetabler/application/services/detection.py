@@ -523,7 +523,9 @@ class DetectionService:
             "✅ Ревизия #%s стабильна (%s с после обнаружения) — отправляю в рассылку",
             revision.id, age,
         )
-        return await self.revision_service.set_status(revision.id, "approved")
+        approved = await self.revision_service.set_status(revision.id, "approved")
+        await self.notifier.notify_revision_update(approved or revision)
+        return approved
 
     def _is_sane(
         self, parsed: ParsedTimetable, parent_entries: list

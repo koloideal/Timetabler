@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from aiogram.types import (
     BotCommand,
     BotCommandScopeChat,
@@ -84,6 +84,16 @@ class TelegramNotifier(CreatorNotifier):
             revision_approval_blocks(revision, self.app_config),
             reply_markup=revision_approval_markup(revision.id),
         )
+
+    async def notify_revision_update(self, revision: Revision) -> None:
+        try:
+            await self.send_rich_to_creator(
+                revision_approval_blocks(revision, self.app_config, ask=False)
+            )
+        except TelegramAPIError:
+            self._logger.warning(
+                "Cannot send revision #%s diff to creator", revision.id
+            )
 
     async def notify_new_user(self, user: User) -> None:
         await self.notify_creator(new_user_text(user))
