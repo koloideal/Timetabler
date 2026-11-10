@@ -349,3 +349,23 @@ async def _test_require_confirmation_goes_to_pending():
     rev = next(iter(revs.revisions.values()))
     assert rev.status == "pending_approval"
     assert len(notifier.approvals) == 1
+
+
+def test_header_text_change_with_same_date_is_edit_not_new():
+    asyncio.run(_test_header_text_change_with_same_date_is_edit_not_new())
+
+
+async def _test_header_text_change_with_same_date_is_edit_not_new():
+    published = _revision(
+        1, "published", header=f"{MARKER} (изм.)", content_hash="old"
+    )
+    parsed = ParsedTimetable(entries=[_entry("Физика")])
+    service, revs, _ = make_service(
+        grid(["changed"]), parsed, published=published,
+        published_entries=[_lesson("Математика")],
+    )
+
+    assert await service.poll_day(FOR_DATE) is None
+    settling = next(r for r in revs.revisions.values() if r.status == "settling")
+    assert settling.kind == "edit"
+    assert settling.changed_groups == [2124]

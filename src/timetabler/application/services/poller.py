@@ -68,6 +68,9 @@ class SheetsPoller:
                 far = lookahead_day(today)
                 if far not in days:
                     days.append(far)
+            for rev in await revision_service.get_by_status("settling"):
+                if rev.for_date >= today and rev.for_date not in days:
+                    days.append(rev.for_date)
             for for_date in days:
                 try:
                     revision = await detection.poll_day(for_date)
@@ -80,6 +83,14 @@ class SheetsPoller:
                     self._clear_error(for_date)
                     if revision is not None:
                         approved.append(revision)
+
+            settling_dates = {
+                r.for_date for r in await revision_service.get_by_status("settling")
+            }
+            if settling_dates & set(days):
+                poll_interval = min(
+                    poll_interval, app_config.revisions.settle_poll_seconds
+                )
 
             await (await scope.get(AsyncSession)).commit()
             for revision in approved:

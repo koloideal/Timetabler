@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -59,6 +60,7 @@ class BroadcastService:
         self.config = config
         self.timing = timing
         self._logger = logging.getLogger(__name__)
+        self._events = logging.getLogger("events")
 
     async def _build_day(
         self,
@@ -134,10 +136,18 @@ class BroadcastService:
             self.notifier, self.config, self.timing,
         )
 
+    @staticmethod
+    def _changed_groups(revision: Revision, day: DaySchedule) -> set[int]:
+        changed = set(revision.changed_groups)
+        if not changed and revision.kind == "new":
+            return set(day.by_group)
+        return changed
+
     async def _publish(self, revision: Revision) -> None:
+        started = monotonic()
         day = await self.revision_schedule(revision)
         label = self._update_label()
-        changed = set(revision.changed_groups) or set(day.by_group)
+        changed = self._changed_groups(revision, day)
 
         recipients: list[tuple[str, int]] = []
         recipients += [
@@ -163,6 +173,14 @@ class BroadcastService:
         await self.deliveries_dao.ensure(revision.id, recipients)
         await self.session.commit()
 
+        planned = {k: sum(1 for kind, _ in recipients if kind == k) for k in ("channel", "chat", "dm")}
+        self._events.info(
+            "📬 Ревизия #%s на %s: рассылаю — каналов %s, групповых чатов %s, юзеров %s (группы %s)",
+            revision.id, revision.for_date.strftime("%d.%m.%Y"),
+            planned["channel"], planned["chat"], planned["dm"], sorted(changed),
+        )
+
+        stats = {k: [0, 0] for k in planned}
         pending = await self.deliveries_dao.get_pending(revision.id)
         pending.sort(key=lambda d: d.kind != "channel")
         for delivery in pending:
@@ -186,6 +204,7 @@ class BroadcastService:
                     delivery.id, delivery.kind, delivery.chat_id,
                 )
                 ok = False
+            stats[delivery.kind][0 if ok else 1] += 1
             await self.deliveries_dao.set_status(
                 delivery.id, "sent" if ok else "failed"
             )
@@ -198,7 +217,15 @@ class BroadcastService:
             published_at=datetime.now(ZoneInfo(self.config.update_timezone)),
         )
         await self.session.commit()
-        self._logger.info("Revision %s for %s published", revision.id, revision.for_date)
+        failed = sum(f for _, f in stats.values())
+        total_age = int((datetime.now(timezone.utc) - revision.detected_at).total_seconds())
+        self._events.info(
+            "📤 Ревизия #%s на %s опубликована: каналов %s, чатов %s, юзеров %s%s — рассылка %.1f с, %s с после обнаружения",
+            revision.id, revision.for_date.strftime("%d.%m.%Y"),
+            stats["channel"][0], stats["chat"][0], stats["dm"][0],
+            f", ошибок {failed} (каналов {stats['channel'][1]}, чатов {stats['chat'][1]}, юзеров {stats['dm'][1]})" if failed else "",
+            monotonic() - started, total_age,
+        )
 
     def _update_label(self, at: datetime | None = None) -> str:
         tz = ZoneInfo(self.config.update_timezone)
@@ -215,44 +242,28 @@ class BroadcastService:
             m for m in await self.sent_messages_dao.get_for_day(chat_id, revision.for_date)
             if m.revision_id != revision.id
         ]
-        note = label
-        message_id = None
-
-        if prev:
-            last = prev[-1]
-            if await self.sender.edit_channel_schedule(
-                chat_id, last.message_id, revision.for_date, day, note
-            ):
-                message_id = last.message_id
-                await self.sent_messages_dao.set_revision(last.id, revision.id)
-            else:
-                await self.sender.delete_message(chat_id, last.message_id)
-            for stale in prev[:-1]:
-                await self.sender.delete_message(chat_id, stale.message_id)
-            for stale in prev[:-1] + ([] if message_id else [last]):
-                await self.sent_messages_dao.remove(stale.id)
-
+        message_id = await self.sender.send_channel_schedule(
+            chat_id, revision.for_date, day, label
+        )
         if message_id is None:
-            message_id = await self.sender.send_channel_schedule(
-                chat_id, revision.for_date, day, note
+            await self.channels_dao.set_status(chat_id, "disabled")
+            await self.notifier.notify_creator(
+                self.config.channel_send_failed_text.format(chat_id=chat_id)
             )
-            if message_id is not None:
-                await self.sent_messages_dao.add(
-                    revision.id, revision.for_date, chat_id, message_id,
-                    "channel", [str(g) for g in day.by_group],
-                )
-            else:
-                await self.channels_dao.set_status(chat_id, "disabled")
-                await self.notifier.notify_creator(
-                    self.config.channel_send_failed_text.format(chat_id=chat_id)
-                )
-                return False
+            return False
+        await self.sent_messages_dao.add(
+            revision.id, revision.for_date, chat_id, message_id,
+            "channel", [str(g) for g in day.by_group],
+        )
+        for stale in prev:
+            await self.sender.delete_message(chat_id, stale.message_id)
+            await self.sent_messages_dao.remove(stale.id)
         return True
 
     async def _publish_group_chat(
         self, chat: GroupChat, revision: Revision, day: DaySchedule, label: str
     ) -> bool:
-        changed = set(revision.changed_groups) or set(day.by_group)
+        changed = self._changed_groups(revision, day)
         relevant = [g for g in chat.study_groups if g in changed]
         if not relevant:
             return True
@@ -301,6 +312,16 @@ class BroadcastService:
 
         ok = True
         sent_now = []
+        dropped: set[int] = set()
+
+        async def drop_old(group_id: int) -> None:
+            for old in prev:
+                if old.id in dropped or str(group_id) not in old.groups:
+                    continue
+                dropped.add(old.id)
+                await self.sender.delete_message(user_id, old.message_id)
+                await self.sent_messages_dao.remove(old.id)
+
         for group_id in needed:
             if group_id in already:
                 continue
@@ -316,13 +337,11 @@ class BroadcastService:
                 revision.id, revision.for_date, user_id, message_id,
                 "dm", [str(group_id)],
             )
+            await drop_old(group_id)
 
-        sent_groups = {str(g) for g in relevant}
-        for old in prev:
-            if not sent_groups & set(old.groups):
-                continue
-            await self.sender.delete_message(user_id, old.message_id)
-            await self.sent_messages_dao.remove(old.id)
+        for group_id in relevant:
+            if group_id not in day.by_group:
+                await drop_old(group_id)
 
         if user.pin_enabled:
             await self._apply_user_pins(user, sent_now)
@@ -393,25 +412,42 @@ class BroadcastService:
                 for_date, chat.chat_id, delivery.message_id,
                 "chat", [str(group_id)],
             )
+            if revision is not None:
+                await self._drop_old_chat_messages(
+                    chat.chat_id, for_date, revision, {str(group_id)}, message_ids
+                )
 
         if revision is not None:
-            sent_groups = {
-                str(g)
-                for g in (cleanup_groups if cleanup_groups is not None else group_ids)
-            }
-            for old in await self.sent_messages_dao.get_for_day(chat.chat_id, for_date):
-                if old.revision_id == revision.id or old.message_id in message_ids:
-                    continue
-                if not sent_groups & set(old.groups):
-                    continue
-                await self.sender.delete_message(chat.chat_id, old.message_id)
-                await self.sent_messages_dao.remove(old.id)
+            await self._drop_old_chat_messages(
+                chat.chat_id, for_date, revision,
+                {
+                    str(g)
+                    for g in (cleanup_groups if cleanup_groups is not None else group_ids)
+                },
+                message_ids,
+            )
 
         if not message_ids:
             return "empty"
 
         await self._apply_pins(chat, message_ids)
         return "sent"
+
+    async def _drop_old_chat_messages(
+        self,
+        chat_id: int,
+        for_date: date,
+        revision: Revision,
+        groups: set[str],
+        keep_ids: list[int],
+    ) -> None:
+        for old in await self.sent_messages_dao.get_for_day(chat_id, for_date):
+            if old.revision_id == revision.id or old.message_id in keep_ids:
+                continue
+            if not groups & set(old.groups):
+                continue
+            await self.sender.delete_message(chat_id, old.message_id)
+            await self.sent_messages_dao.remove(old.id)
 
     async def _apply_pins(self, chat: GroupChat, message_ids: list[int]) -> None:
         if not chat.pin_enabled:

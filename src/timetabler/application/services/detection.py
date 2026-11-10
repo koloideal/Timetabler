@@ -1,6 +1,8 @@
 import hashlib
 import logging
 import re
+from collections import Counter
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import orjson
@@ -14,7 +16,6 @@ from timetabler.domain.schemas import (
     DiffLine,
     ParsedTimetable,
     Revision,
-    TimetableEntry,
 )
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.sheets import GoogleSheetsClient
@@ -50,10 +51,6 @@ def _group_hash(entries: list) -> str:
         )
     ]
     return hashlib.sha256(orjson.dumps(rows)).hexdigest()
-
-
-def _entry_key(entry) -> tuple:
-    return (entry.position, entry.subgroup)
 
 
 def _a1_indexes(ref: str) -> tuple[int, int] | None:
@@ -122,28 +119,67 @@ def parse_header_date(marker: str, formats: tuple[str, ...]) -> date | None:
     return None
 
 
-def _entry_changes(old, new) -> list[tuple[str, str | None, str | None]]:
-    changes = []
-    for field, label in (
-        ("subject", "предмет"),
-        ("teacher", "препод"),
-        ("audience", "ауд."),
-    ):
-        old_v = getattr(old, field)
-        new_v = getattr(new, field)
-        if old_v != new_v:
-            changes.append((label, old_v, new_v))
-    old_t = format_range(getattr(old, "start", None), getattr(old, "end", None))
-    new_t = format_range(getattr(new, "start", None), getattr(new, "end", None))
-    if old_t != new_t:
-        changes.append(("время", old_t, new_t))
-    return changes
+def _clean(value: object) -> str | None:
+    text = " ".join(str(value).split()) if value is not None else ""
+    return text or None
 
 
-def _pos_label(entry: TimetableEntry) -> str:
-    label = "–" if entry.position is None else f"п.{entry.position}"
-    if entry.subgroup:
-        label += f"/{entry.subgroup}п"
+def _src(entry) -> tuple[str | None, str | None, str | None, str | None]:
+    raw = getattr(entry, "source_time", None)
+    if raw is None:
+        raw = getattr(entry, "starts_at", None)
+    return (
+        _clean(entry.subject),
+        _clean(entry.teacher),
+        _clean(entry.audience),
+        raw.strftime("%H:%M") if raw is not None else None,
+    )
+
+
+@dataclass
+class _Row:
+    position: int | None
+    subgroup: int | None
+    src: tuple[str | None, str | None, str | None, str | None]
+    entry: object
+
+
+def _canon_rows(entries: list) -> list[_Row]:
+    by_pos: dict[int | None, list] = {}
+    for e in entries:
+        by_pos.setdefault(e.position, []).append(e)
+    rows: list[_Row] = []
+    for pos, items in by_pos.items():
+        sg1 = [e for e in items if e.subgroup == 1]
+        sg2 = [e for e in items if e.subgroup == 2]
+        merge = bool(sg1) and bool(sg2) and Counter(map(_src, sg1)) == Counter(
+            map(_src, sg2)
+        )
+        for e in items:
+            if merge and e.subgroup == 2:
+                continue
+            sub = None if merge and e.subgroup == 1 else e.subgroup
+            rows.append(_Row(pos, sub, _src(e), e))
+    return rows
+
+
+def _signature(rows: list[_Row]) -> Counter:
+    return Counter((r.position, r.subgroup, r.src) for r in rows)
+
+
+def _src_changes(
+    old: tuple, new: tuple
+) -> list[tuple[str, str | None, str | None]]:
+    labels = ("предмет", "препод", "ауд.", "время")
+    return [
+        (label, o, n) for label, o, n in zip(labels, old, new) if o != n
+    ]
+
+
+def _pos_label(position: int | None, subgroup: int | None) -> str:
+    label = "–" if position is None else f"п.{position}"
+    if subgroup:
+        label += f"/{subgroup}п"
     return label
 
 
@@ -169,31 +205,10 @@ def compute_diff(
         elif new_g is None and old_g is not None:
             lines.append(DiffLine("вся группа", f"{len(old_g)} пар", None))
         elif old_g is not None and new_g is not None:
-            old_map: dict[tuple, list] = {}
-            for e in old_g:
-                old_map.setdefault(_entry_key(e), []).append(e)
-            new_map: dict[tuple, list] = {}
-            for e in new_g:
-                new_map.setdefault(_entry_key(e), []).append(e)
-            key_order = lambda k: (k[0] is None, k[0] or 0, k[1] or 0)
-            by_subject = lambda e: (e.subject or "", e.teacher or "", e.audience or "")
-            for key in sorted(set(old_map) | set(new_map), key=key_order):
-                olds = sorted(old_map.get(key, []), key=by_subject)
-                news = sorted(new_map.get(key, []), key=by_subject)
-                for old_e, new_e in zip(olds, news):
-                    changes = _entry_changes(old_e, new_e)
-                    if changes:
-                        lines.append(
-                            DiffLine(
-                                _pos_label(new_e),
-                                _changes_side(changes, 0),
-                                _changes_side(changes, 1),
-                            )
-                        )
-                for e in olds[len(news):]:
-                    lines.append(DiffLine(_pos_label(e), _lesson_desc(e), None))
-                for e in news[len(olds):]:
-                    lines.append(DiffLine(_pos_label(e), None, _lesson_desc(e)))
+            old_rows = _canon_rows(old_g)
+            new_rows = _canon_rows(new_g)
+            if _signature(old_rows) != _signature(new_rows):
+                lines.extend(_row_lines(old_rows, new_rows))
             old_aud = old_audiences.get(group_id)
             new_aud = parsed.base_audiences.get(group_id)
             if old_aud != new_aud:
@@ -207,6 +222,37 @@ def compute_diff(
         if lines:
             diff[group_id] = lines
     return sorted(diff), diff
+
+
+def _row_lines(old_rows: list[_Row], new_rows: list[_Row]) -> list[DiffLine]:
+    old_map: dict[tuple, list[_Row]] = {}
+    for r in old_rows:
+        old_map.setdefault((r.position, r.subgroup), []).append(r)
+    new_map: dict[tuple, list[_Row]] = {}
+    for r in new_rows:
+        new_map.setdefault((r.position, r.subgroup), []).append(r)
+    key_order = lambda k: (k[0] is None, k[0] or 0, k[1] or 0)
+    by_src = lambda r: tuple(x or "" for x in r.src)
+    lines: list[DiffLine] = []
+    for key in sorted(set(old_map) | set(new_map), key=key_order):
+        olds = sorted(old_map.get(key, []), key=by_src)
+        news = sorted(new_map.get(key, []), key=by_src)
+        label = _pos_label(*key)
+        for old_r, new_r in zip(olds, news):
+            changes = _src_changes(old_r.src, new_r.src)
+            if changes:
+                lines.append(
+                    DiffLine(
+                        label,
+                        _changes_side(changes, 0),
+                        _changes_side(changes, 1),
+                    )
+                )
+        for r in olds[len(news):]:
+            lines.append(DiffLine(label, _lesson_desc(r.entry), None))
+        for r in news[len(olds):]:
+            lines.append(DiffLine(label, None, _lesson_desc(r.entry)))
+    return lines
 
 
 def _fmt_change_val(label: str, value: object) -> str:
@@ -263,6 +309,7 @@ class DetectionService:
         self.config = config
         self.timing = timing
         self._logger = logging.getLogger(__name__)
+        self._events = logging.getLogger("events")
         self._insane_hashes: set[str] = set()
 
     async def poll_day(self, for_date: date) -> Revision | None:
@@ -292,7 +339,9 @@ class DetectionService:
         ):
             await self.revision_service.delete(settling.id)
             await self.sheets_service.set_last_hash(weekday, content_hash)
-            self._logger.info("Revision candidate %s reverted to published", settling.id)
+            self._events.info(
+                "↩️ Ревизия #%s откатилась к опубликованной — удалена", settling.id
+            )
             return None
 
         if content_hash in self._insane_hashes:
@@ -357,14 +406,17 @@ class DetectionService:
         published: Revision | None,
         parent_entries: list,
     ) -> Revision | None:
-        kind = "new" if published is None or marker != published.header else "edit"
+        kind = "new" if published is None else "edit"
         if kind == "edit":
             if published is None:
                 self._logger.error("edit kind without published for %s", for_date)
                 return None
             changed, diff = compute_diff(parent_entries, published.base_audiences, parsed)
             if not changed:
-                self._logger.info("Formatting-only change for %s, skipped", for_date)
+                self._events.info(
+                    "⏭ Правка на %s без реальных изменений в группах — пропущена",
+                    for_date.strftime("%d.%m.%Y"),
+                )
                 return None
         else:
             changed = sorted({e.group_id for e in parsed.entries})
@@ -381,8 +433,10 @@ class DetectionService:
             parent_revision_id=published.id if published else None,
             parsed=parsed,
         )
-        self._logger.info(
-            "Detected %s revision %s for %s", kind, revision.id, for_date
+        self._events.info(
+            "🔎 Ревизия #%s (%s) на %s обнаружена: изменённые группы %s",
+            revision.id, "новое расписание" if kind == "new" else "правка",
+            for_date.strftime("%d.%m.%Y"), changed,
         )
         if kind == "new":
             return await self._settle(revision)
@@ -397,7 +451,7 @@ class DetectionService:
         published: Revision | None,
         parent_entries: list,
     ) -> Revision | None:
-        kind = "new" if published is None or marker != published.header else "edit"
+        kind = "new" if published is None else "edit"
         if kind == "edit":
             if published is None:
                 self._logger.error(
@@ -407,7 +461,10 @@ class DetectionService:
             changed, diff = compute_diff(parent_entries, published.base_audiences, parsed)
             if not changed:
                 await self.revision_service.delete(settling.id)
-                self._logger.info("Revision candidate %s became no-op", settling.id)
+                self._events.info(
+                    "⏭ Ревизия #%s после доп. правок не меняет расписание — удалена",
+                    settling.id,
+                )
                 return None
         else:
             changed = sorted({e.group_id for e in parsed.entries})
@@ -453,10 +510,19 @@ class DetectionService:
 
     async def _gate(self, revision: Revision) -> Revision | None:
         settings = await self.settings_service.get_sheets_settings()
+        age = int((datetime.now(timezone.utc) - revision.detected_at).total_seconds())
         if settings.require_confirmation:
+            self._events.info(
+                "🕓 Ревизия #%s стабильна (%s с после обнаружения) — ждёт подтверждения админа",
+                revision.id, age,
+            )
             rev = await self.revision_service.set_status(revision.id, "pending_approval")
             await self.notifier.ask_revision_approval(rev or revision)
             return None
+        self._events.info(
+            "✅ Ревизия #%s стабильна (%s с после обнаружения) — отправляю в рассылку",
+            revision.id, age,
+        )
         return await self.revision_service.set_status(revision.id, "approved")
 
     def _is_sane(

@@ -116,6 +116,7 @@ class LessonTimingConfig:
 @dataclass(frozen=True)
 class RevisionsConfig:
     stable_polls: int = 2
+    settle_poll_seconds: int = 15
     max_settle_seconds: int = 1200
     update_timezone: str = "Europe/Minsk"
     send_delay_seconds: float = 0.05

@@ -411,3 +411,101 @@ async def _test_forbidden_disables_chat():
     )
     assert result == "failed"
     assert chats.disabled == [-100]
+
+
+class _Channel:
+    def __init__(self, chat_id):
+        self.chat_id = chat_id
+
+
+class _ChannelsDAO(FakeChannelsDAO):
+    async def get_enabled(self):
+        return [_Channel(-500)]
+
+
+class _ChannelSender(FakeSender):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    async def send_channel_schedule(self, chat_id, for_date, day, note=None):
+        self.events.append(("send", chat_id))
+        return 900
+
+    async def edit_channel_schedule(self, chat_id, message_id, for_date, day,
+                                    note=None):
+        self.events.append(("edit", message_id))
+        return True
+
+    async def delete_message(self, chat_id, message_id):
+        self.events.append(("delete", message_id))
+
+
+def test_channel_always_resends_and_deletes_old():
+    asyncio.run(_test_channel_always_resends_and_deletes_old())
+
+
+async def _test_channel_always_resends_and_deletes_old():
+    sent = FakeSentMessagesDAO()
+    await sent.add(0, FOR_DATE, -500, 777, "channel", ["2124"])
+    sender = _ChannelSender()
+    service = make_service(users=(), sender=sender, sent=sent)
+    service.channels_dao = _ChannelsDAO()
+    await service._publish(_revision())
+    assert sender.events == [("send", -500), ("delete", 777)]
+    assert [m.message_id for m in sent.rows] == [900]
+
+
+class _OrderSender(FakeSender):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    async def send_group_schedule(self, chat_id, for_date, day, group_id,
+                                  note=None, mode="a"):
+        self.events.append(("send", group_id))
+        return await super().send_group_schedule(
+            chat_id, for_date, day, group_id, note, mode
+        )
+
+    async def delete_message(self, chat_id, message_id):
+        self.events.append(("delete", message_id))
+
+
+def test_dm_deletes_old_right_after_each_new_group():
+    asyncio.run(_test_dm_deletes_old_right_after_each_new_group())
+
+
+async def _test_dm_deletes_old_right_after_each_new_group():
+    sent = FakeSentMessagesDAO()
+    await sent.add(0, FOR_DATE, 42, 11, "dm", ["2124"])
+    await sent.add(0, FOR_DATE, 42, 12, "dm", ["3124"])
+    sender = _OrderSender()
+    service = make_service(
+        users=(_user(groups=("2124", "3124")),),
+        entries=(_lesson(2124), _lesson(3124)),
+        sender=sender, sent=sent,
+    )
+    await service._publish(_revision(changed_groups=[2124, 3124]))
+    assert sender.events == [
+        ("send", 2124), ("delete", 11), ("send", 3124), ("delete", 12),
+    ]
+
+
+def test_only_changed_group_is_sent_to_multi_group_user():
+    asyncio.run(_test_only_changed_group_is_sent_to_multi_group_user())
+
+
+async def _test_only_changed_group_is_sent_to_multi_group_user():
+    sent = FakeSentMessagesDAO()
+    await sent.add(0, FOR_DATE, 42, 11, "dm", ["2124"])
+    sender = _OrderSender()
+    service = make_service(
+        users=(_user(groups=("2124", "3124")),),
+        entries=(_lesson(2124), _lesson(3124)),
+        sender=sender, sent=sent,
+    )
+    await service._publish(_revision(changed_groups=[3124]))
+    assert sender.group_schedules == [(42, 3124)]
+    assert ("delete", 11) not in sender.events
+    assert any(m.message_id == 11 for m in sent.rows)

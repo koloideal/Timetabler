@@ -1,5 +1,8 @@
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import date
+from typing import TypeVar
 
 from aiogram import Bot
 from aiogram.exceptions import (
@@ -7,6 +10,7 @@ from aiogram.exceptions import (
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramMigrateToChat,
+    TelegramRetryAfter,
 )
 from aiogram.types import InputRichBlockUnion, InputRichMessage
 
@@ -20,11 +24,29 @@ from timetabler.presentation.messages import (
 )
 
 
+T = TypeVar("T")
+
+_MAX_RETRIES = 3
+_MAX_RETRY_WAIT = 60
+
+
 class TelegramScheduleSender(ScheduleSender):
     def __init__(self, bot: Bot, app_config: AppConfig) -> None:
         self.bot = bot
         self.config = app_config
         self._logger = logging.getLogger(__name__)
+
+    async def _retry(self, call: Callable[[], Awaitable[T]]) -> T:
+        for attempt in range(_MAX_RETRIES):
+            try:
+                return await call()
+            except TelegramRetryAfter as e:
+                if attempt == _MAX_RETRIES - 1:
+                    raise
+                wait = min(e.retry_after + 1, _MAX_RETRY_WAIT)
+                self._logger.warning("Telegram flood control, waiting %ss", wait)
+                await asyncio.sleep(wait)
+        raise RuntimeError("unreachable")
 
     @staticmethod
     def _with_note(
@@ -46,10 +68,12 @@ class TelegramScheduleSender(ScheduleSender):
             return None
         blocks, markup = content
         try:
-            message = await self.bot.send_rich_message(
-                chat_id=chat_id,
-                rich_message=InputRichMessage(blocks=self._with_note(blocks, note)),
-                reply_markup=markup,
+            message = await self._retry(
+                lambda: self.bot.send_rich_message(
+                    chat_id=chat_id,
+                    rich_message=InputRichMessage(blocks=self._with_note(blocks, note)),
+                    reply_markup=markup,
+                )
             )
             return message.message_id
         except TelegramForbiddenError:
@@ -61,14 +85,16 @@ class TelegramScheduleSender(ScheduleSender):
         if not day.by_group:
             return None
         try:
-            message = await self.bot.send_rich_message(
-                chat_id=chat_id,
-                rich_message=InputRichMessage(
-                    blocks=self._with_note(
-                        channel_blocks(day, for_date, self.config, is_compact=True),
-                        note, top=True,
-                    )
-                ),
+            message = await self._retry(
+                lambda: self.bot.send_rich_message(
+                    chat_id=chat_id,
+                    rich_message=InputRichMessage(
+                        blocks=self._with_note(
+                            channel_blocks(day, for_date, self.config, is_compact=True),
+                            note, top=True,
+                        )
+                    ),
+                )
             )
             return message.message_id
         except TelegramForbiddenError:
@@ -106,9 +132,11 @@ class TelegramScheduleSender(ScheduleSender):
             return ChatDelivery()
         blocks, _ = content
         try:
-            message = await self.bot.send_rich_message(
-                chat_id=chat_id,
-                rich_message=InputRichMessage(blocks=self._with_note(blocks, note)),
+            message = await self._retry(
+                lambda: self.bot.send_rich_message(
+                    chat_id=chat_id,
+                    rich_message=InputRichMessage(blocks=self._with_note(blocks, note)),
+                )
             )
             return ChatDelivery(message_id=message.message_id)
         except TelegramMigrateToChat as e:
@@ -120,14 +148,16 @@ class TelegramScheduleSender(ScheduleSender):
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         try:
-            await self.bot.delete_message(chat_id, message_id)
+            await self._retry(lambda: self.bot.delete_message(chat_id, message_id))
         except TelegramAPIError:
-            pass
+            self._logger.warning("Cannot delete message %s in %s", message_id, chat_id)
 
     async def pin_chat_message(self, chat_id: int, message_id: int) -> bool:
         try:
-            return await self.bot.pin_chat_message(
-                chat_id, message_id, disable_notification=True
+            return await self._retry(
+                lambda: self.bot.pin_chat_message(
+                    chat_id, message_id, disable_notification=True
+                )
             )
         except TelegramAPIError:
             return False
