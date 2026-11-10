@@ -114,6 +114,21 @@ class Revision:
 
 
 @dataclass
+class PublishReport:
+    revision: Revision
+    seconds: float
+    age_seconds: int
+    channels: tuple[int, int]
+    chats: tuple[int, int]
+    users: tuple[int, int]
+    lessons_by_group: dict[int, int]
+
+    @property
+    def failed(self) -> int:
+        return self.channels[1] + self.chats[1] + self.users[1]
+
+
+@dataclass
 class SentMessage:
     id: int
     revision_id: int | None

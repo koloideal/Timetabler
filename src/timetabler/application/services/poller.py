@@ -8,6 +8,7 @@ from dishka import AsyncContainer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from timetabler.application.exceptions import TimetableParseError
+from timetabler.application.ports import CreatorNotifier
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.detection import DetectionService
 from timetabler.application.services.revision import RevisionService
@@ -44,8 +45,11 @@ class SheetsPoller:
         while True:
             try:
                 delay = await self.poll_once()
-            except Exception:
+            except Exception as e:
                 self._logger.exception("Sheets poll cycle failed")
+                await self._notify(
+                    "Сбой цикла опроса", f"{type(e).__name__}: {e}"
+                )
             await asyncio.sleep(delay)
 
     async def poll_once(self) -> int:
@@ -75,10 +79,17 @@ class SheetsPoller:
                 try:
                     revision = await detection.poll_day(for_date)
                 except (SheetAccessError, TimetableParseError) as e:
-                    self._log_error_once(for_date, f"{e}")
+                    title = (
+                        "Ошибка разбора таблицы"
+                        if isinstance(e, TimetableParseError)
+                        else "Таблица недоступна"
+                    )
+                    await self._log_error_once(for_date, f"{e}", title)
                 except Exception as e:
                     self._logger.exception("Unexpected poll failure for %s", for_date)
-                    self._log_error_once(for_date, f"{type(e).__name__}: {e}")
+                    await self._log_error_once(
+                        for_date, f"{type(e).__name__}: {e}", "Сбой опроса"
+                    )
                 else:
                     self._clear_error(for_date)
                     if revision is not None:
@@ -98,10 +109,19 @@ class SheetsPoller:
 
         return poll_interval
 
-    def _log_error_once(self, key: object, message: str) -> None:
+    async def _log_error_once(self, key: object, message: str, title: str) -> None:
         if self._errors.get(key) != message:
             self._errors[key] = message
             self._logger.error("Sheets poll failed (%s): %s", key, message)
+            suffix = f" · {key:%d.%m.%Y}" if isinstance(key, date) else ""
+            await self._notify(f"{title}{suffix}", message)
+
+    async def _notify(self, title: str, details: str) -> None:
+        try:
+            notifier = await self.container.get(CreatorNotifier)
+            await notifier.notify_error(title, details)
+        except Exception:
+            self._logger.exception("Cannot send error notice to creator")
 
     def _clear_error(self, key: object) -> None:
         if key in self._errors:

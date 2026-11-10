@@ -131,13 +131,13 @@ class FakeSheetsService:
 class FakeNotifier:
     def __init__(self):
         self.approvals = []
-        self.updates = []
+        self.errors = []
 
     async def ask_revision_approval(self, revision):
         self.approvals.append(revision)
 
-    async def notify_revision_update(self, revision):
-        self.updates.append(revision)
+    async def notify_error(self, title, details=""):
+        self.errors.append((title, details))
 
 
 class FakeRevisionService:
@@ -242,7 +242,6 @@ async def _test_new_revision_auto_approved():
     assert rev.status == "approved"
     assert rev.kind == "new"
     assert notifier.approvals == []
-    assert [r.id for r in notifier.updates] == [rev.id]
     assert await service.poll_day(FOR_DATE) is None
 
 
@@ -275,7 +274,6 @@ async def _test_edit_settles_after_stable_polls():
     approved = await service.poll_day(FOR_DATE)
     assert approved is not None
     assert approved.status == "approved"
-    assert [r.id for r in notifier.updates] == [approved.id]
 
 
 def test_refresh_resets_stable_polls():
@@ -355,7 +353,6 @@ async def _test_require_confirmation_goes_to_pending():
     rev = next(iter(revs.revisions.values()))
     assert rev.status == "pending_approval"
     assert len(notifier.approvals) == 1
-    assert notifier.updates == []
 
 
 def test_header_text_change_with_same_date_is_edit_not_new():
@@ -376,3 +373,29 @@ async def _test_header_text_change_with_same_date_is_edit_not_new():
     settling = next(r for r in revs.revisions.values() if r.status == "settling")
     assert settling.kind == "edit"
     assert settling.changed_groups == [2124]
+
+
+def test_unparsable_header_is_reported_once():
+    asyncio.run(_test_unparsable_header_is_reported_once())
+
+
+async def _test_unparsable_header_is_reported_once():
+    values = [["РАСПИСАНИЕ БЕЗ ДАТЫ"], ["row"]]
+    service, _, notifier = make_service(values, ParsedTimetable(entries=[_entry("x")]))
+    assert await service.poll_day(FOR_DATE) is None
+    assert await service.poll_day(FOR_DATE) is None
+    assert len(notifier.errors) == 1
+    assert "Не распознана дата" in notifier.errors[0][0]
+    assert "БЕЗ ДАТЫ" in notifier.errors[0][1]
+
+
+def test_insane_document_is_reported_once():
+    asyncio.run(_test_insane_document_is_reported_once())
+
+
+async def _test_insane_document_is_reported_once():
+    service, _, notifier = make_service(grid(["x"]), ParsedTimetable(entries=[]))
+    await service.poll_day(FOR_DATE)
+    await service.poll_day(FOR_DATE)
+    assert len(notifier.errors) == 1
+    assert "Подозрительный документ" in notifier.errors[0][0]

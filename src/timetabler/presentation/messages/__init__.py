@@ -9,7 +9,9 @@ from .notifications import (
     channel_approval_markup as channel_approval_markup,
     group_setup_markup as group_setup_markup,
     new_user_text as new_user_text,
+    error_text as error_text,
     revision_approval_blocks as revision_approval_blocks,
+    revision_report_blocks as revision_report_blocks,
     revision_approval_markup as revision_approval_markup,
 )
 from .timetable_text import (

@@ -1,4 +1,5 @@
 import logging
+from time import monotonic
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
@@ -12,14 +13,18 @@ from aiogram.types import (
 )
 
 from timetabler.application.ports import CreatorNotifier
-from timetabler.domain.schemas import Revision, User
+from timetabler.domain.schemas import PublishReport, Revision, User
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.config.models import Config
 from timetabler.presentation.messages import (
+    error_text,
     new_user_text,
     revision_approval_blocks,
     revision_approval_markup,
+    revision_report_blocks,
 )
+
+_ERROR_TTL = 1800
 
 
 class TelegramNotifier(CreatorNotifier):
@@ -28,6 +33,7 @@ class TelegramNotifier(CreatorNotifier):
         self.config = config
         self.app_config = app_config
         self._logger = logging.getLogger(__name__)
+        self._recent_errors: dict[str, float] = {}
 
     async def process_set_commands(self) -> None:
         user_commands = [
@@ -85,15 +91,29 @@ class TelegramNotifier(CreatorNotifier):
             reply_markup=revision_approval_markup(revision.id),
         )
 
-    async def notify_revision_update(self, revision: Revision) -> None:
+    async def notify_revision_report(self, report: PublishReport) -> None:
         try:
             await self.send_rich_to_creator(
-                revision_approval_blocks(revision, self.app_config, ask=False)
+                revision_report_blocks(report, self.app_config)
             )
         except TelegramAPIError:
             self._logger.warning(
-                "Cannot send revision #%s diff to creator", revision.id
+                "Cannot send revision #%s report to creator", report.revision.id
             )
+
+    async def notify_error(self, title: str, details: str = "") -> None:
+        text = error_text(title, details)
+        now = monotonic()
+        self._recent_errors = {
+            t: at for t, at in self._recent_errors.items() if now - at < _ERROR_TTL
+        }
+        if text in self._recent_errors:
+            return
+        self._recent_errors[text] = now
+        try:
+            await self.notify_creator(text)
+        except TelegramAPIError:
+            self._logger.warning("Cannot send error notice to creator")
 
     async def notify_new_user(self, user: User) -> None:
         await self.notify_creator(new_user_text(user))

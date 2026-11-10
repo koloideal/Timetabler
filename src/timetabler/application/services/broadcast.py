@@ -12,6 +12,7 @@ from timetabler.domain.schemas import (
     DaySchedule,
     GroupChat,
     ParsedTimetable,
+    PublishReport,
     Revision,
     ResolvedLesson,
     TimetableEntry,
@@ -226,6 +227,20 @@ class BroadcastService:
             f", ошибок {failed} (каналов {stats['channel'][1]}, чатов {stats['chat'][1]}, юзеров {stats['dm'][1]})" if failed else "",
             monotonic() - started, total_age,
         )
+        try:
+            await self.notifier.notify_revision_report(
+                PublishReport(
+                    revision=revision,
+                    seconds=monotonic() - started,
+                    age_seconds=total_age,
+                    channels=(stats["channel"][0], stats["channel"][1]),
+                    chats=(stats["chat"][0], stats["chat"][1]),
+                    users=(stats["dm"][0], stats["dm"][1]),
+                    lessons_by_group={g: len(v) for g, v in day.by_group.items()},
+                )
+            )
+        except Exception:
+            self._logger.exception("Cannot send revision report to creator")
 
     def _update_label(self, at: datetime | None = None) -> str:
         tz = ZoneInfo(self.config.update_timezone)

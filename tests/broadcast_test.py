@@ -263,9 +263,13 @@ class FakeDeliveriesDAO:
 class FakeNotifier:
     def __init__(self):
         self.messages = []
+        self.reports = []
 
     async def notify_creator(self, text):
         self.messages.append(text)
+
+    async def notify_revision_report(self, report):
+        self.reports.append(report)
 
 
 def make_service(*, users=(_user(),), entries=(_lesson(),),
@@ -509,3 +513,17 @@ async def _test_only_changed_group_is_sent_to_multi_group_user():
     assert sender.group_schedules == [(42, 3124)]
     assert ("delete", 11) not in sender.events
     assert any(m.message_id == 11 for m in sent.rows)
+
+
+def test_publish_sends_report_to_creator_with_stats():
+    asyncio.run(_test_publish_sends_report_to_creator_with_stats())
+
+
+async def _test_publish_sends_report_to_creator_with_stats():
+    service = make_service(users=(_user(), _user(user_id=43)))
+    await service._publish(_revision())
+    assert len(service.notifier.reports) == 1
+    report = service.notifier.reports[0]
+    assert report.revision.id == 1
+    assert report.users == (2, 0) and report.chats == (0, 0)
+    assert report.lessons_by_group == {2124: 1}

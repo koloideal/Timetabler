@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from timetabler.application.exceptions import TimetableParseError
+from timetabler.application.ports import CreatorNotifier
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.detection import DetectionService
 from timetabler.application.services.poller import SheetsPoller
@@ -33,12 +35,23 @@ class _Settings:
 
 
 class _Detection:
-    def __init__(self):
+    def __init__(self, error=None):
         self.polled: list[date] = []
+        self.error = error
 
     async def poll_day(self, for_date):
         self.polled.append(for_date)
+        if self.error:
+            raise self.error
         return None
+
+
+class _Notifier:
+    def __init__(self):
+        self.errors = []
+
+    async def notify_error(self, title, details=""):
+        self.errors.append((title, details))
 
 
 class _Broadcast:
@@ -74,9 +87,11 @@ class _Scope:
 
 
 class _Container:
-    def __init__(self, settling):
-        self.detection = _Detection()
+    def __init__(self, settling, error=None):
+        self.detection = _Detection(error)
+        self.notifier = _Notifier()
         self.services = {
+            CreatorNotifier: self.notifier,
             SettingsService: _Settings(),
             DetectionService: self.detection,
             BroadcastService: _Broadcast(),
@@ -110,3 +125,18 @@ def test_settling_day_outside_window_is_still_polled():
     delay = asyncio.run(SheetsPoller(container).poll_once())
     assert far in container.detection.polled
     assert delay == AppConfig().revisions.settle_poll_seconds
+
+
+def test_parse_error_is_sent_to_creator_once_until_it_changes():
+    async def run():
+        container = _Container([], error=TimetableParseError("Строка 5: непонятное время"))
+        poller = SheetsPoller(container)
+        await poller.poll_once()
+        await poller.poll_once()
+        return container.notifier.errors
+
+    errors = asyncio.run(run())
+    titles = [t for t, _ in errors]
+    assert len(set(titles)) == len(titles) and titles
+    assert all("Ошибка разбора таблицы" in t for t in titles)
+    assert errors[0][1] == "Строка 5: непонятное время"

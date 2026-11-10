@@ -311,6 +311,20 @@ class DetectionService:
         self._logger = logging.getLogger(__name__)
         self._events = logging.getLogger("events")
         self._insane_hashes: set[str] = set()
+        self._reported: set[tuple] = set()
+
+    async def _report_once(
+        self, key: tuple, title: str, details: str = ""
+    ) -> None:
+        if key in self._reported:
+            return
+        if len(self._reported) > 500:
+            self._reported.clear()
+        self._reported.add(key)
+        try:
+            await self.notifier.notify_error(title, details)
+        except Exception:
+            self._logger.exception("Cannot send error notice to creator")
 
     async def poll_day(self, for_date: date) -> Revision | None:
         weekday = for_date.weekday()
@@ -361,6 +375,11 @@ class DetectionService:
                     "Cannot parse date in header %r for %s, skipping",
                     marker, for_date,
                 )
+                await self._report_once(
+                    ("header", for_date, marker),
+                    f"Не распознана дата в шапке · {for_date:%d.%m.%Y}",
+                    f"Ячейка {settings.date_cell}: «{marker}»",
+                )
             else:
                 self._logger.info(
                     "Sheet header %r is for %s, not %s — skipping",
@@ -374,6 +393,15 @@ class DetectionService:
 
         parsed = self.parser.parse(values, default_date=for_date)
         parsed.resolved = self.timing.resolve(parsed, for_date)
+        conflicts = sorted(
+            {l.group_id for l in parsed.resolved if "conflict" in l.flags}
+        )
+        if conflicts:
+            await self._report_once(
+                ("conflict", for_date, content_hash),
+                f"Конфликт пар по времени · {for_date:%d.%m.%Y}",
+                f"Пересекаются пары в группах: {', '.join(map(str, conflicts))}",
+            )
         parent_entries = (
             await self.revision_service.get_entries(published.id) if published else []
         )
@@ -384,6 +412,14 @@ class DetectionService:
             self._logger.warning(
                 "Detected insane document for %s (empty or groups dropped), skipping",
                 for_date,
+            )
+            old_groups = len({e.group_id for e in parent_entries})
+            new_groups = len({e.group_id for e in parsed.entries})
+            await self._report_once(
+                ("insane", for_date, content_hash),
+                f"Подозрительный документ · {for_date:%d.%m.%Y} — пропущен",
+                f"Групп в документе: {new_groups}, в опубликованном: {old_groups}"
+                if parsed.entries else "В документе не найдено ни одной пары",
             )
             return None
 
@@ -410,6 +446,11 @@ class DetectionService:
         if kind == "edit":
             if published is None:
                 self._logger.error("edit kind without published for %s", for_date)
+                await self._report_once(
+                    ("nopub", for_date),
+                    f"Внутренняя ошибка · {for_date:%d.%m.%Y}",
+                    "правка без опубликованной ревизии",
+                )
                 return None
             changed, diff = compute_diff(parent_entries, published.base_audiences, parsed)
             if not changed:
@@ -523,9 +564,7 @@ class DetectionService:
             "✅ Ревизия #%s стабильна (%s с после обнаружения) — отправляю в рассылку",
             revision.id, age,
         )
-        approved = await self.revision_service.set_status(revision.id, "approved")
-        await self.notifier.notify_revision_update(approved or revision)
-        return approved
+        return await self.revision_service.set_status(revision.id, "approved")
 
     def _is_sane(
         self, parsed: ParsedTimetable, parent_entries: list
