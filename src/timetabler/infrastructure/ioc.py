@@ -4,7 +4,14 @@ from aiogram import Bot
 from dishka import Provider, Scope, provide
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from timetabler.application.ports import CreatorNotifier, ScheduleParser, ScheduleSender
+from timetabler.application.ports import (
+    CreatorNotifier,
+    MassSender,
+    ScheduleParser,
+    ScheduleSender,
+)
+from timetabler.application.services.audience import AudienceService
+from timetabler.application.services.mass_broadcast import MassBroadcastService
 from timetabler.application.services.broadcast import BroadcastService
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.detection import DetectionService
@@ -18,6 +25,7 @@ from timetabler.application.services.user import UserService
 from timetabler.infrastructure.config.app import (
     AppConfig,
     LessonTimingConfig,
+    MassBroadcastConfig,
     RevisionsConfig,
     SheetsClientConfig,
     SheetsSettingsConfig,
@@ -37,7 +45,11 @@ from timetabler.infrastructure.database.dao import (
 )
 from timetabler.infrastructure.parsing.grid_parser import GridScheduleParser
 from timetabler.infrastructure.sheets import GoogleSheetsClient
-from timetabler.presentation.telegram import TelegramNotifier, TelegramScheduleSender
+from timetabler.presentation.telegram import (
+    TelegramMassSender,
+    TelegramNotifier,
+    TelegramScheduleSender,
+)
 
 
 class DatabaseProvider(Provider):
@@ -124,6 +136,15 @@ class ServicesProvider(Provider):
         settings_config: SheetsSettingsConfig,
     ) -> SettingsService:
         return SettingsService(settings_dao, settings_config)
+
+    @provide
+    def get_audience_service(
+        self,
+        users_dao: UsersDAO,
+        group_chats_dao: GroupChatsDAO,
+        study_groups_dao: StudyGroupsDAO,
+    ) -> AudienceService:
+        return AudienceService(users_dao, group_chats_dao, study_groups_dao)
 
     @provide
     def get_revision_service(
@@ -221,6 +242,19 @@ class PresentationProvider(Provider):
     def get_schedule_sender(self, sender: TelegramScheduleSender) -> ScheduleSender:
         return sender
 
+    @provide
+    def get_mass_sender(self, bot: Bot, config: MassBroadcastConfig) -> MassSender:
+        return TelegramMassSender(bot, config)
+
+    @provide
+    def get_mass_broadcast_service(
+        self,
+        sender: MassSender,
+        notifier: CreatorNotifier,
+        config: MassBroadcastConfig,
+    ) -> MassBroadcastService:
+        return MassBroadcastService(sender, notifier, config)
+
 
 class AppConfigProvider(Provider):
     @provide(scope=Scope.APP)
@@ -238,6 +272,10 @@ class AppConfigProvider(Provider):
     @provide(scope=Scope.APP)
     def get_revisions_config(self, app_config: AppConfig) -> RevisionsConfig:
         return app_config.revisions
+
+    @provide(scope=Scope.APP)
+    def get_mass_broadcast_config(self, app_config: AppConfig) -> MassBroadcastConfig:
+        return app_config.mass_broadcast
 
     @provide(scope=Scope.APP)
     def get_lesson_timing_config(self, app_config: AppConfig) -> LessonTimingConfig:

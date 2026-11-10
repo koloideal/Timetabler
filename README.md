@@ -49,6 +49,7 @@ Access the admin panel with `/admin` command:
 - 🎓 **Groups**: Aliases for group IDs, deletion (creator only)
 - 📊 **Sheets**: Bind a spreadsheet ID to each weekday, validate access on save
 - ⚙️ **Settings**: Poll interval, lookahead (day-after-next) interval, schedule range, date cell, revision confirmation — all editable live
+- 📣 **Broadcast**: Mass message (any type, copied as-is) to everyone / by course / specialty / group, with or without group chats — runs as a background task with flood-wait handling and progress/stop; never posts to channels
 - 📅 **Schedule**: Calendar picker with today/tomorrow shortcuts → per-group TG preview (with subgroup toggle) or XLSX export
 
 ## 👤 User Features

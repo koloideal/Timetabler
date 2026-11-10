@@ -37,6 +37,7 @@ from timetabler.presentation.messages import (
     preview as schedule_preview,
     subgroup_markup,
 )
+from timetabler.presentation.admin_dialogs.broadcast import build_broadcast_windows
 from timetabler.presentation.telegram import TelegramNotifier, TelegramScheduleSender
 
 
@@ -59,6 +60,11 @@ class AdminPanelSG(StatesGroup):
     schedule_day = State()
     channels_list = State()
     channel_detail = State()
+    bc_menu = State()
+    bc_pick = State()
+    bc_compose = State()
+    bc_confirm = State()
+    bc_status = State()
 
 
 def _is_creator(dialog_manager: DialogManager, config: Config) -> bool:
@@ -907,6 +913,7 @@ def build_admin_panel_dialog() -> Dialog:
                 SwitchTo(Const("💬 Чаты"), id="sec_chats", state=AdminPanelSG.chats_list),
                 SwitchTo(Const("📢 Каналы"), id="sec_channels", state=AdminPanelSG.channels_list),
             ),
+            SwitchTo(Const("📣 Рассылка"), id="sec_broadcast", state=AdminPanelSG.bc_menu),
             SwitchTo(Const("⚙️ Настройки"), id="sec_settings", state=AdminPanelSG.sheets_settings),
             state=AdminPanelSG.main,
             getter=get_admin_main_data,
@@ -1193,4 +1200,5 @@ def build_admin_panel_dialog() -> Dialog:
             state=AdminPanelSG.schedule_day,
             getter=get_schedule_view_data,
         ),
+        *build_broadcast_windows(AdminPanelSG),
     )

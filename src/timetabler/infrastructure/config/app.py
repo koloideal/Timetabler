@@ -135,6 +135,13 @@ class RevisionsConfig:
 
 
 @dataclass(frozen=True)
+class MassBroadcastConfig:
+    send_interval_seconds: float = 0.06
+    max_retry_attempts: int = 5
+    max_retry_wait_seconds: int = 120
+
+
+@dataclass(frozen=True)
 class AppConfig:
     required_columns: tuple[str, ...] = ("group", "position", "subject")
     date_formats: tuple[str, ...] = ("%d.%m.%Y", "%Y-%m-%d")
@@ -147,6 +154,7 @@ class AppConfig:
     sheets_settings: SheetsSettingsConfig = field(default_factory=SheetsSettingsConfig)
     revisions: RevisionsConfig = field(default_factory=RevisionsConfig)
     lesson_timing: LessonTimingConfig = field(default_factory=LessonTimingConfig)
+    mass_broadcast: MassBroadcastConfig = field(default_factory=MassBroadcastConfig)
     user_help: str = (
         "<b>ℹ️ Справка</b>\n\n"
         "Я присылаю расписание пар: в личку по вашим подпискам "
