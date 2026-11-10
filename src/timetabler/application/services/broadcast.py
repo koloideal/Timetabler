@@ -236,7 +236,6 @@ class BroadcastService:
                     channels=(stats["channel"][0], stats["channel"][1]),
                     chats=(stats["chat"][0], stats["chat"][1]),
                     users=(stats["dm"][0], stats["dm"][1]),
-                    lessons_by_group={g: len(v) for g, v in day.by_group.items()},
                 )
             )
         except Exception:

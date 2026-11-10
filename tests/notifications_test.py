@@ -15,7 +15,7 @@ def _report(kind="edit", **kw) -> PublishReport:
     )
     base = dict(
         revision=rev, seconds=1.5, age_seconds=42, channels=(1, 0), chats=(1, 0),
-        users=(8, 1), lessons_by_group={2124: 6, 3125: 5},
+        users=(8, 1),
     )
     base.update(kw)
     return PublishReport(**base)
@@ -31,7 +31,8 @@ def test_report_for_new_schedule_has_day_stats_and_composition():
     assert "Новое расписание" in text and "10.11.2026" in text
     assert "каналов 1, чатов 1, юзеров 8" in text
     assert "ошибок" in text.lower()
-    assert "Состав расписания (11 пар)" in text
+    assert "Состав" not in text and "Details" not in text
+    assert "📅 День:" in text and "🎓 Группы:" in text and "📬 Доставлено:" in text
 
 
 def test_report_for_edit_contains_diff():

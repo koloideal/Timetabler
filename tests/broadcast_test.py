@@ -526,4 +526,3 @@ async def _test_publish_sends_report_to_creator_with_stats():
     report = service.notifier.reports[0]
     assert report.revision.id == 1
     assert report.users == (2, 0) and report.chats == (0, 0)
-    assert report.lessons_by_group == {2124: 1}

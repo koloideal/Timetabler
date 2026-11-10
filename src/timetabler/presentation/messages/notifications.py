@@ -133,31 +133,14 @@ def revision_approval_blocks(
     changed = ", ".join(str(g) for g in revision.changed_groups) or "—"
     blocks: list[InputRichBlockUnion] = [
         InputRichBlockSectionHeading(text=f"📝 Ревизия #{revision.id}", size=2),
-        _field("День:", f"{revision.for_date.strftime('%d.%m.%Y')} ({weekday})"),
-        _field("Тип:", kind),
-        _field("Группы:", changed),
+        _field("📅 День:", f"{revision.for_date.strftime('%d.%m.%Y')} ({weekday})"),
+        _field("🏷 Тип:", kind),
+        _field("🎓 Группы:", changed),
         *_diff_blocks(revision, False),
         InputRichBlockDivider(),
         InputRichBlockParagraph(text=RichTextBold(text="Опубликовать?")),
     ]
     return blocks
-
-
-def _lessons_table(lessons_by_group: dict[int, int]) -> InputRichBlockTable:
-    cells = [
-        [
-            RichBlockTableCell(align="left", valign="middle", text="Группа", is_header=True),
-            RichBlockTableCell(align="left", valign="middle", text="Пар", is_header=True),
-        ]
-    ]
-    for group_id, count in sorted(lessons_by_group.items())[:_MAX_DIFF_ROWS]:
-        cells.append([
-            RichBlockTableCell(align="left", valign="middle", text=str(group_id)),
-            RichBlockTableCell(align="left", valign="middle", text=str(count)),
-        ])
-    return InputRichBlockTable(
-        cells=cells, is_bordered=True, is_striped=True, is_compact=True,
-    )
 
 
 def revision_report_blocks(
@@ -178,19 +161,19 @@ def revision_report_blocks(
             text=f"📤 {'Новое расписание' if is_new else 'Расписание обновлено'} · #{rev.id}",
             size=2,
         ),
-        _field("День:", f"{rev.for_date.strftime('%d.%m.%Y')} ({weekday})"),
-        _field("Тип:", "новое расписание" if is_new else "правка"),
-        _field("Группы:", groups),
+        _field("📅 День:", f"{rev.for_date.strftime('%d.%m.%Y')} ({weekday})"),
+        _field("🏷 Тип:", "новое расписание" if is_new else "правка"),
+        _field("🎓 Группы:", groups),
     ]
     if rev.header:
-        blocks.append(_field("Шапка:", shorten(rev.header, 80)))
+        blocks.append(_field("📝 Шапка:", shorten(rev.header, 80)))
     blocks.append(
         _field(
-            "Время:",
+            "⏱ Время:",
             f"{report.age_seconds} с от обнаружения до рассылки, рассылка {report.seconds:.1f} с",
         )
     )
-    blocks.append(_field("Доставлено:", delivered))
+    blocks.append(_field("📬 Доставлено:", delivered))
     if report.failed:
         blocks.append(
             _field(
@@ -201,14 +184,6 @@ def revision_report_blocks(
     if rev.diff and not is_new:
         total_rows = sum(len(lines) for lines in rev.diff.values())
         blocks += _diff_blocks(rev, total_rows <= _OPEN_DIFF_ROWS)
-    elif is_new and report.lessons_by_group:
-        blocks.append(
-            InputRichBlockDetails(
-                summary=f"📋 Состав расписания ({sum(report.lessons_by_group.values())} пар)",
-                blocks=[_lessons_table(report.lessons_by_group)],
-                is_open=False,
-            )
-        )
     return blocks
 
 

@@ -121,7 +121,6 @@ class PublishReport:
     channels: tuple[int, int]
     chats: tuple[int, int]
     users: tuple[int, int]
-    lessons_by_group: dict[int, int]
 
     @property
     def failed(self) -> int:
