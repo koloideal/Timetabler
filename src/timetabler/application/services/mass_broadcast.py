@@ -70,8 +70,8 @@ class MassBroadcastService:
             label=label,
             from_chat_id=from_chat_id,
             message_id=message_id,
-            users=list(audience.user_ids),
-            chats=list(audience.chat_ids),
+            users=list(dict.fromkeys(audience.user_ids)),
+            chats=list(dict.fromkeys(audience.chat_ids)),
         )
         self._jobs[job.id] = job
         job.task = asyncio.create_task(self._run(job))

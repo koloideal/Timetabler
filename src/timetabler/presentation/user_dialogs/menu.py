@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -60,7 +61,17 @@ def _user_lessons(day: DaySchedule, user: User) -> list[ResolvedLesson]:
     else:
         group_ids = {int(g) for g in user.groups if g.isdigit()}
         candidates = [l for gid in group_ids for l in day.by_group.get(gid, ())]
-    return [l for l in candidates if sub is None or l.subgroup in (None, sub)]
+    return [
+        replace(
+            l,
+            audience=(
+                None if l.kind == "pe"
+                else l.audience or day.audiences.get(l.group_id)
+            ),
+        )
+        for l in candidates
+        if sub is None or l.subgroup in (None, sub)
+    ]
 
 
 async def _now_info(

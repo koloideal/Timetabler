@@ -36,23 +36,26 @@ def format_range(start: int | None, end: int | None) -> str:
     return f"{format_time(start)}-{format_time_ceil(end)}"
 
 
-def _events(
-    lessons: list[ResolvedLesson],
-) -> list[tuple[int, int, list[str], int | None]]:
-    merged: dict[tuple[int, int], tuple[list[str], int | None]] = {}
+_Event = tuple[int, int, list[str], int | None, dict[str, str]]
+
+
+def _events(lessons: list[ResolvedLesson]) -> list[_Event]:
+    merged: dict[tuple[int, int], tuple[list[str], int | None, dict[str, list[str]]]] = {}
     for l in lessons:
         if l.start is None or l.end is None:
             continue
         key = (l.start, l.end)
-        subjects, slot = merged.get(key, ([], l.slot))
+        subjects, slot, auds = merged.get(key, ([], l.slot, {}))
         if l.subject not in subjects:
             subjects.append(l.subject)
+        if l.audience and l.audience not in auds.setdefault(l.subject, []):
+            auds[l.subject].append(l.audience)
         if slot is None:
             slot = l.slot
-        merged[key] = (subjects, slot)
+        merged[key] = (subjects, slot, auds)
     return [
-        (s, e, subjects, slot)
-        for (s, e), (subjects, slot) in sorted(merged.items())
+        (s, e, subjects, slot, {k: "/".join(v) for k, v in auds.items()})
+        for (s, e), (subjects, slot, auds) in sorted(merged.items())
     ]
 
 
@@ -60,7 +63,7 @@ def now_status(lessons: list[ResolvedLesson], now_sec: int) -> NowStatus:
     events = _events(lessons)
     if not events:
         return NowStatus(kind="empty")
-    last_end = max(e for _, e, _, _ in events)
+    last_end = max(ev[1] for ev in events)
     nxt = next((ev for ev in events if ev[0] > now_sec), None)
     current = [ev for ev in events if ev[0] <= now_sec < ev[1]]
     if current:
@@ -68,9 +71,11 @@ def now_status(lessons: list[ResolvedLesson], now_sec: int) -> NowStatus:
         return NowStatus(
             kind="lesson",
             current_subjects=[s for ev in current for s in ev[2]],
+            current_audiences={k: v for ev in current for k, v in ev[4].items()},
             current_slot=min(slots) if slots else None,
             current_end=max(ev[1] for ev in current),
             next_subjects=nxt[2] if nxt else [],
+            next_audiences=nxt[4] if nxt else {},
             next_slot=nxt[3] if nxt else None,
             next_start=nxt[0] if nxt else None,
             last_end=last_end,
@@ -80,6 +85,7 @@ def now_status(lessons: list[ResolvedLesson], now_sec: int) -> NowStatus:
         return NowStatus(
             kind=kind,
             next_subjects=nxt[2],
+            next_audiences=nxt[4],
             next_slot=nxt[3],
             next_start=nxt[0],
             last_end=last_end,
@@ -87,12 +93,14 @@ def now_status(lessons: list[ResolvedLesson], now_sec: int) -> NowStatus:
     return NowStatus(kind="done")
 
 
-def first_event(lessons: list[ResolvedLesson]) -> tuple[int, list[str]] | None:
+def first_event(
+    lessons: list[ResolvedLesson],
+) -> tuple[int, list[str], dict[str, str]] | None:
     events = _events(lessons)
     if not events:
         return None
-    start, _, subjects, _ = events[0]
-    return start, subjects
+    start, _, subjects, _, auds = events[0]
+    return start, subjects, auds
 
 
 class LessonTimingResolver:

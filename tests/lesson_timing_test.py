@@ -160,8 +160,8 @@ def test_now_status_merges_parallel_subgroups():
 
 def test_first_event():
     lessons = resolve([e(2, "Физика"), e(1, "Математика")])
-    start, subjects = first_event(lessons)
-    assert start == sec(9) and subjects == ["Математика"]
+    start, subjects, auds = first_event(lessons)
+    assert start == sec(9) and subjects == ["Математика"] and auds == {}
     assert first_event([]) is None
 
 
@@ -174,3 +174,23 @@ def test_saturday_grid():
     assert format_range(by_pos[1].start, by_pos[1].end) == "09:00-09:43"
     assert by_pos[2].slot == 2 and by_pos[3].slot == 3
     assert "no_slot" in by_pos[4].flags
+
+
+def test_now_status_carries_audiences_and_text_shows_them():
+    from dataclasses import replace
+
+    from timetabler.presentation.messages.timetable_text import now_status_text
+
+    lessons = [
+        replace(l, audience=aud)
+        for l, aud in zip(resolve([e(1, "Математика"), e(2, "Физика")]), ["204", None])
+    ]
+    st = now_status(lessons, sec(9, 30))
+    assert st.current_audiences == {"Математика": "204"}
+    assert st.next_audiences == {}
+    text = now_status_text(st)
+    assert "«Математика» (ауд. 204)" in text
+    assert "«Физика»" in text and "«Физика» (ауд." not in text
+    first = first_event(lessons)
+    assert first[2] == {"Математика": "204"}
+    assert "(ауд. 204)" in now_status_text(now_status(lessons, sec(13)), first)

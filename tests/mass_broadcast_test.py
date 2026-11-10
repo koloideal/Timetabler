@@ -237,3 +237,23 @@ def test_forbidden_is_blocked_and_bad_request_failed():
 
 def test_admin_dialog_with_broadcast_windows_builds():
     build_admin_panel_dialog()
+
+
+def test_user_in_several_selected_groups_is_counted_once():
+    a = _resolve(mode=MODE_GROUPS, values=["1126", "2124"])
+    assert a.user_ids == [5]
+    a = _resolve(mode=MODE_COURSES, values=["1", "3"])
+    assert a.user_ids.count(5) == 1 and len(a.user_ids) == len(set(a.user_ids))
+
+
+def test_job_dedups_repeated_recipients():
+    async def run():
+        sender = _Sender()
+        svc = _service(sender)
+        job = svc.start(Audience([1, 1, 2], [-5, -5]), 1, 1, "x")
+        await job.task
+        return job, sender
+
+    job, sender = asyncio.run(run())
+    assert [c[0] for c in sender.calls] == [1, 2, -5]
+    assert job.total == 3

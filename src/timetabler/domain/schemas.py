@@ -156,9 +156,11 @@ class DaySchedule:
 class NowStatus:
     kind: str  # "empty" | "before" | "lesson" | "break" | "done"
     current_subjects: list[str] = field(default_factory=list)
+    current_audiences: dict[str, str] = field(default_factory=dict)
     current_slot: int | None = None
     current_end: int | None = None
     next_subjects: list[str] = field(default_factory=list)
+    next_audiences: dict[str, str] = field(default_factory=dict)
     next_slot: int | None = None
     next_start: int | None = None
     last_end: int | None = None
