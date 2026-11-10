@@ -50,7 +50,7 @@ class AudienceService:
         if mode == MODE_SPECIALTIES:
             labels = specialty_labels(groups)
             return [(labels[c], c) for c in sorted(labels)]
-        return [(g.display_name, str(g.group_id)) for g in sorted(groups, key=lambda g: g.group_id)]
+        return [(str(g.group_id), str(g.group_id)) for g in sorted(groups, key=lambda g: g.group_id)]
 
     @staticmethod
     def target_groups(spec: AudienceSpec, groups: list[StudyGroup]) -> set[int] | None:

@@ -291,7 +291,7 @@ def build_broadcast_windows(sg: Any) -> list[Window]:
                     type_factory=str,
                 ),
                 id="bc_pick_scroll",
-                width=2,
+                width=3,
                 height=8,
                 hide_on_single_page=True,
             ),
