@@ -255,7 +255,9 @@ async def on_my_chats(
 ) -> None:
     if call.bot is None:
         return
-    chats = await manageable_chats(call.bot, group_chat_service, call.from_user.id)
+    chats = await manageable_chats(
+        call.bot, group_chat_service, call.from_user.id, force=True
+    )
     if len(chats) == 1:
         chat = chats[0]
         state = (

@@ -1,4 +1,5 @@
 import logging
+from time import monotonic
 from typing import cast
 
 from aiogram import Bot, F
@@ -33,6 +34,7 @@ class GroupSetupSG(StatesGroup):
     pick_groups = State()
     settings = State()
     pin_denied = State()
+    add_chat = State()
 
 
 async def is_chat_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
@@ -43,9 +45,21 @@ async def is_chat_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
     return member.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR)
 
 
+_CHATS_CACHE_TTL = 60
+_chats_cache: dict[int, tuple[list[GroupChat], float]] = {}
+
+
 async def manageable_chats(
-    bot: Bot, group_chat_service: GroupChatService, user_id: int
+    bot: Bot,
+    group_chat_service: GroupChatService,
+    user_id: int,
+    *,
+    force: bool = False,
 ) -> list[GroupChat]:
+    if not force:
+        cached = _chats_cache.get(user_id)
+        if cached is not None and cached[1] > monotonic():
+            return cached[0]
     manageable = []
     for chat in await group_chat_service.list_chats():
         try:
@@ -56,6 +70,7 @@ async def manageable_chats(
             continue
         if await is_chat_admin(bot, chat.chat_id, user_id):
             manageable.append(chat)
+    _chats_cache[user_id] = (manageable, monotonic() + _CHATS_CACHE_TTL)
     return manageable
 
 
@@ -131,10 +146,16 @@ async def get_settings_data(
 ) -> dict[str, object]:
     labels = {"not_configured": "⚠️ Не настроена", "active": "🟢 Включена", "disabled": "🔴 Выключена"}
     chat = await _current_chat(dialog_manager, group_chat_service)
+    user = dialog_manager.middleware_data.get("event_from_user")
+    bot = dialog_manager.middleware_data.get("bot")
+    single_chat = False
+    if isinstance(user, User) and isinstance(bot, Bot):
+        single_chat = len(await manageable_chats(bot, group_chat_service, user.id)) == 1
     if chat is None:
         return {
             "title": "—", "groups": "—", "status": "—", "pin": "—",
             "pin_toggle": "—", "active_toggle": "—", "configured": False,
+            "single_chat": single_chat,
         }
     return {
         "title": chat.title or str(chat.chat_id),
@@ -144,6 +165,7 @@ async def get_settings_data(
         "pin_toggle": "📌 Выключить закреп" if chat.pin_enabled else "📌 Включить закреп",
         "active_toggle": "🔴 Отключить рассылку" if chat.status == "active" else "🟢 Включить рассылку",
         "configured": bool(chat.study_groups),
+        "single_chat": single_chat,
     }
 
 
@@ -321,6 +343,20 @@ async def on_toggle_active(
     )
 
 
+@inject
+async def get_add_chat_data(
+    dialog_manager: DialogManager,
+    **kwargs: object,
+) -> dict[str, object]:
+    bot = dialog_manager.middleware_data.get("bot")
+    username = "меня"
+    if isinstance(bot, Bot):
+        me = await bot.get_me()
+        if me.username:
+            username = f"@{me.username}"
+    return {"bot_username": username}
+
+
 async def on_back_to_menu(
     callback: CallbackQuery,
     widget: Button,
@@ -331,12 +367,102 @@ async def on_back_to_menu(
     await dialog_manager.start(UserMenuSG.main, mode=StartMode.RESET_STACK)
 
 
+@inject
+async def on_settings_back(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    group_chat_service: FromDishka[GroupChatService],
+) -> None:
+    bot = callback.bot
+    if bot is None:
+        await on_back_to_menu(callback, widget, dialog_manager)
+        return
+    chats = await manageable_chats(
+        bot, group_chat_service, callback.from_user.id, force=True
+    )
+    if len(chats) <= 1:
+        await on_back_to_menu(callback, widget, dialog_manager)
+    else:
+        await dialog_manager.switch_to(GroupSetupSG.chats_list)
+
+
+@inject
+async def on_add_chat(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    group_chat_service: FromDishka[GroupChatService],
+) -> None:
+    if callback.bot is not None:
+        chats = await manageable_chats(
+            callback.bot, group_chat_service, callback.from_user.id, force=True
+        )
+        dialog_manager.dialog_data["add_chat_prev"] = [
+            c.chat_id for c in chats
+        ]
+    await dialog_manager.switch_to(GroupSetupSG.add_chat)
+
+
+@inject
+async def on_add_chat_refresh(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    group_chat_service: FromDishka[GroupChatService],
+) -> None:
+    bot = callback.bot
+    if bot is None:
+        return
+    chats = await manageable_chats(
+        bot, group_chat_service, callback.from_user.id, force=True
+    )
+    prev = set(dialog_manager.dialog_data.get("add_chat_prev", ()))
+    new = [c for c in chats if c.chat_id not in prev]
+    if not new:
+        await callback.answer(
+            "Чат пока не появился — проверьте, что я добавлен в группу "
+            "и вы её администратор",
+            show_alert=True,
+        )
+        return
+    dialog_manager.dialog_data.pop("add_chat_prev", None)
+    chat = new[0]
+    dialog_manager.dialog_data["chat_id"] = chat.chat_id
+    await callback.answer(f"✅ Найден чат «{chat.title or chat.chat_id}»")
+    await dialog_manager.switch_to(
+        GroupSetupSG.settings if chat.study_groups else GroupSetupSG.pick_groups
+    )
+
+
+@inject
+async def on_add_chat_back(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    group_chat_service: FromDishka[GroupChatService],
+) -> None:
+    bot = callback.bot
+    if bot is not None:
+        chats = await manageable_chats(
+            bot, group_chat_service, callback.from_user.id, force=True
+        )
+        if len(chats) == 1:
+            chat = chats[0]
+            dialog_manager.dialog_data["chat_id"] = chat.chat_id
+            await dialog_manager.switch_to(
+                GroupSetupSG.settings if chat.study_groups else GroupSetupSG.pick_groups
+            )
+            return
+    await dialog_manager.switch_to(GroupSetupSG.chats_list)
+
+
 def build_group_setup_dialog() -> Dialog:
     return Dialog(
         Window(
             Const(
                 "<b>💬 Мои чаты</b>\n\n"
-                "Нет чатов. Добавьте меня в группу и нажмите «💬 Мои чаты» снова.",
+                "Нет чатов. Добавьте меня в группу и нажмите «➕ Добавить чат».",
                 when=~F["has_chats"],
             ),
             Const(
@@ -354,6 +480,7 @@ def build_group_setup_dialog() -> Dialog:
                 ),
                 when=F["has_chats"],
             ),
+            Button(Const("➕ Добавить чат"), id="add_chat_list", on_click=on_add_chat),
             Button(Const("◀️ В главное меню"), id="to_menu", on_click=on_back_to_menu),
             state=GroupSetupSG.chats_list,
             getter=get_chats_list_data,
@@ -402,7 +529,13 @@ def build_group_setup_dialog() -> Dialog:
                 Button(Const("📤 Тестовая отправка"), id="send_test", on_click=on_send_test, when=F["configured"]),
                 Button(Format("{active_toggle}"), id="active_toggle", on_click=on_toggle_active, when=F["configured"]),
             ),
-            SwitchTo(Const("◀️ Назад"), id="back_chats", state=GroupSetupSG.chats_list),
+            Button(Const("◀️ Назад"), id="back_chats", on_click=on_settings_back),
+            Button(
+                Const("➕ Добавить чат"),
+                id="add_chat_settings",
+                on_click=on_add_chat,
+                when=F["single_chat"],
+            ),
             state=GroupSetupSG.settings,
             getter=get_settings_data,
         ),
@@ -418,5 +551,17 @@ def build_group_setup_dialog() -> Dialog:
             ),
             state=GroupSetupSG.pin_denied,
             getter=get_pin_denied_data,
+        ),
+        Window(
+            Format(
+                "<b>➕ Добавить чат</b>\n\n"
+                "1. Добавьте {bot_username} в групповой чат.\n"
+                "2. Вернитесь сюда и нажмите «🔄 Обновить».\n\n"
+                "<i>Чат появится, если вы — его администратор.</i>"
+            ),
+            Button(Const("🔄 Обновить"), id="add_chat_refresh", on_click=on_add_chat_refresh),
+            Button(Const("◀️ Назад"), id="add_chat_back", on_click=on_add_chat_back),
+            state=GroupSetupSG.add_chat,
+            getter=get_add_chat_data,
         ),
     )
