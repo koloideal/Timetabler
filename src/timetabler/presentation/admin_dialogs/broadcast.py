@@ -9,7 +9,6 @@ from aiogram_dialog.widgets.kbd import (
     Button,
     ManagedMultiselect,
     Multiselect,
-    Row,
     ScrollingGroup,
     SwitchTo,
 )
@@ -264,14 +263,10 @@ def build_broadcast_windows(sg: Any) -> list[Window]:
                 "Выберите аудиторию — бот скопирует ваше сообщение "
                 "(любого типа) в личку и групповые чаты. Каналы не затрагиваются."
             ),
-            Row(
-                Button(Const(_MODE_TITLES[MODE_ALL]), id="bc_all", on_click=mode_handler(MODE_ALL)),
-                Button(Const(_MODE_TITLES[MODE_COURSES]), id="bc_courses", on_click=mode_handler(MODE_COURSES)),
-            ),
-            Row(
-                Button(Const(_MODE_TITLES[MODE_SPECIALTIES]), id="bc_specs", on_click=mode_handler(MODE_SPECIALTIES)),
-                Button(Const(_MODE_TITLES[MODE_GROUPS]), id="bc_groups", on_click=mode_handler(MODE_GROUPS)),
-            ),
+            Button(Const(_MODE_TITLES[MODE_ALL]), id="bc_all", on_click=mode_handler(MODE_ALL)),
+            Button(Const(_MODE_TITLES[MODE_COURSES]), id="bc_courses", on_click=mode_handler(MODE_COURSES)),
+            Button(Const(_MODE_TITLES[MODE_SPECIALTIES]), id="bc_specs", on_click=mode_handler(MODE_SPECIALTIES)),
+            Button(Const(_MODE_TITLES[MODE_GROUPS]), id="bc_groups", on_click=mode_handler(MODE_GROUPS)),
             Button(Format("{chats_btn}"), id="bc_chats", on_click=on_toggle_chats),
             Button(Format("{job_btn}"), id="bc_job", on_click=on_status_open, when=F["has_job"]),
             SwitchTo(Const("◀️ Назад"), id="bc_back_main", state=sg.main),
@@ -291,14 +286,12 @@ def build_broadcast_windows(sg: Any) -> list[Window]:
                     type_factory=str,
                 ),
                 id="bc_pick_scroll",
-                width=3,
+                width=1,
                 height=8,
                 hide_on_single_page=True,
             ),
-            Row(
-                Button(Const("➡️ Далее"), id="bc_pick_next", on_click=on_pick_next, when=F["has_options"]),
-                SwitchTo(Const("◀️ Назад"), id="bc_pick_back", state=sg.bc_menu),
-            ),
+            Button(Const("➡️ Далее"), id="bc_pick_next", on_click=on_pick_next, when=F["has_options"]),
+            SwitchTo(Const("◀️ Назад"), id="bc_pick_back", state=sg.bc_menu),
             state=sg.bc_pick,
             getter=get_pick_data,
         ),
@@ -324,19 +317,15 @@ def build_broadcast_windows(sg: Any) -> list[Window]:
                 "Ваше сообщение выше будет скопировано получателям. Запустить?"
             ),
             Button(Const("🚀 Запустить"), id="bc_start", on_click=on_start, when=F["can_start"]),
-            Row(
-                SwitchTo(Const("✏️ Другое сообщение"), id="bc_redo", state=sg.bc_compose),
-                SwitchTo(Const("❌ Отмена"), id="bc_cancel", state=sg.bc_menu),
-            ),
+            SwitchTo(Const("✏️ Другое сообщение"), id="bc_redo", state=sg.bc_compose),
+            SwitchTo(Const("❌ Отмена"), id="bc_cancel", state=sg.bc_menu),
             state=sg.bc_confirm,
             getter=get_audience_data,
         ),
         Window(
             Format("{status_text}"),
-            Row(
-                Button(Const("🔄 Обновить"), id="bc_refresh", on_click=on_refresh),
-                Button(Const("⛔ Остановить"), id="bc_stop", on_click=on_stop, when=F["can_stop"]),
-            ),
+            Button(Const("🔄 Обновить"), id="bc_refresh", on_click=on_refresh),
+            Button(Const("⛔ Остановить"), id="bc_stop", on_click=on_stop, when=F["can_stop"]),
             SwitchTo(Const("◀️ В админку"), id="bc_status_back", state=sg.main),
             state=sg.bc_status,
             getter=get_status_data,
