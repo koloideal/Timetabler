@@ -11,6 +11,7 @@ class GridParserConfig:
     # (subgroup, time, teacher, audience)
     subgroup_sets: tuple[tuple[int, int, int, int], ...] = ((1, 3, 4, 5), (2, 6, 7, 8))
     group_pattern: str = r"^\s*(\d(?:\s*\d){2,3})\s*(?:,\s*ауд\.?\s*(.+?))?\s*$"
+    boundary_pattern: str = r"^\s*(?:расписание|номер\s+групп)"
     skipped_cell_values: tuple[str, ...] = ("", "-", "—")
 
 

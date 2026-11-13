@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import date, datetime, time
 
@@ -10,10 +11,13 @@ class GridScheduleParser:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self._group_re = re.compile(config.grid.group_pattern)
+        self._boundary_re = re.compile(config.grid.boundary_pattern, re.IGNORECASE)
+        self._logger = logging.getLogger(__name__)
 
     def parse(self, values: list[list[object]], default_date: date) -> ParsedTimetable:
         parsed = ParsedTimetable()
         group_id: int | None = None
+        seen_group = False
         grid = self.config.grid
 
         for row_no, raw_row in enumerate(values, start=1):
@@ -22,9 +26,19 @@ class GridScheduleParser:
 
             label = self._text(row[grid.group_col])
             if label is not None:
+                if self._boundary_re.match(label):
+                    if seen_group:
+                        self._logger.info(
+                            "Grid truncated at row %s: repeated document header %r",
+                            row_no, label,
+                        )
+                        break
+                    group_id = None
+                    continue
                 match = self._group_re.match(label)
                 if match:
                     group_id = int(re.sub(r"\s+", "", match.group(1)))
+                    seen_group = True
                     base_audience = self._text(match.group(2))
                     if base_audience:
                         parsed.base_audiences.setdefault(group_id, base_audience)
