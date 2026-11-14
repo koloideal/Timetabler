@@ -109,10 +109,15 @@ class GridScheduleParser:
             for subgroup, time_col, teacher_col, audience_col in grid.subgroup_sets
         ]
 
-        if not any(sets[1][1:]):
-            sets = [(None, *sets[0][1:])]
-        elif not any(sets[0][1:]):
-            sets = [sets[1]]
+        s1, s2 = sets
+        s1_lesson = s1[1] is not None or s1[2] is not None
+        s2_lesson = s2[1] is not None or s2[2] is not None
+        if s1_lesson and s2_lesson:
+            pass
+        elif s2_lesson:
+            sets = [(s2[0], s2[1], s2[2], s2[3] or s1[3])]
+        else:
+            sets = [(None, s1[1], s1[2], s1[3] or s2[3])]
 
         return [
             TimetableEntry(

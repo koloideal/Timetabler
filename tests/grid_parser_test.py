@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.infrastructure.parsing.grid_parser import GridScheduleParser
@@ -59,6 +59,53 @@ def test_boundary_case_insensitive():
     ]
     parsed = _parser().parse(values, D)
     assert [e.subject for e in parsed.entries] == ["Математика"]
+
+
+def test_lone_sg2_audience_merges_into_whole_group():
+    values = [
+        ["2125, ауд. 37", "1.", "Математика", None, "Ванькович Т.В.", None, None, None, "35"],
+        ["", "2.", "Охрана труда", None, "Волотовская Т.Е.", None],
+    ]
+    parsed = _parser().parse(values, D)
+    assert [(e.position, e.subgroup, e.teacher, e.audience) for e in parsed.entries] == [
+        (1, None, "Ванькович Т.В.", "35"),
+        (2, None, "Волотовская Т.Е.", None),
+    ]
+
+
+def test_sg1_audience_wins_over_stray_sg2_audience():
+    values = [
+        ["2124", "1.", "ОС", None, "Винник Р.А.", "33", None, None, "35"],
+    ]
+    (e,) = _parser().parse(values, D).entries
+    assert (e.subgroup, e.teacher, e.audience) == (None, "Винник Р.А.", "33")
+
+
+def test_real_sg2_row_stays_sg2():
+    values = [
+        ["2124", "1.", "ОС", None, None, None, None, "Гордиевич А.Г.", "31"],
+    ]
+    (e,) = _parser().parse(values, D).entries
+    assert (e.subgroup, e.teacher, e.audience) == (2, "Гордиевич А.Г.", "31")
+
+
+def test_stray_sg1_audience_joins_sg2_row():
+    values = [
+        ["2124", "1.", "ОС", None, None, "35", None, "Гордиевич А.Г.", None],
+    ]
+    (e,) = _parser().parse(values, D).entries
+    assert (e.subgroup, e.teacher, e.audience) == (2, "Гордиевич А.Г.", "35")
+
+
+def test_sg2_time_only_counts_as_lesson():
+    values = [
+        ["2124", "1.", "ОС", None, "Винник Р.А.", "33", "13:00", None, "31"],
+    ]
+    entries = _parser().parse(values, D).entries
+    assert {(e.subgroup, e.starts_at) for e in entries} == {
+        (1, None),
+        (2, time(13, 0)),
+    }
 
 
 def test_normal_rows_still_parse():
