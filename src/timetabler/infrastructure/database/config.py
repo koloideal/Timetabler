@@ -6,6 +6,7 @@ def new_session_maker(db_url: str) -> async_sessionmaker[AsyncSession]:
         db_url,
         pool_size=10,
         max_overflow=10,
+        pool_pre_ping=True,
         connect_args={
             "timeout": 5,
         },

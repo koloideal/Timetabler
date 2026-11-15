@@ -1,12 +1,14 @@
 import asyncio
 import os
 import sys
-from logging import getLogger
+from collections.abc import Awaitable, Callable
+from logging import Logger, getLogger
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums.parse_mode import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram_dialog import setup_dialogs
 from dishka import make_async_container
@@ -32,6 +34,29 @@ class KeepaliveAiohttpSession(AiohttpSession):
     def __init__(self) -> None:
         super().__init__()
         self._connector_init["keepalive_timeout"] = 3600
+
+
+async def _startup_call(
+    logger: Logger,
+    label: str,
+    call: Callable[[], Awaitable[object]],
+    attempts: int = 6,
+    delay: float = 2.0,
+) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            await call()
+            return
+        except TelegramNetworkError as e:
+            if attempt == attempts:
+                break
+            logger.warning(
+                "%s failed: %s — retry in %.0fs (%d/%d)",
+                label, e, delay, attempt, attempts,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+    logger.warning("%s skipped after %d attempts — continuing startup", label, attempts)
 
 
 async def main() -> None:
@@ -91,9 +116,13 @@ async def main() -> None:
 
     async with container() as nested_container:
         notifier = await nested_container.get(TelegramNotifier)
-        await notifier.process_set_commands()
+        await _startup_call(logger, "set_my_commands", notifier.process_set_commands)
 
-    await bot.delete_webhook(drop_pending_updates=True)
+    await _startup_call(
+        logger,
+        "delete_webhook",
+        lambda: bot.delete_webhook(drop_pending_updates=True),
+    )
 
     poller = SheetsPoller(container)
     poll_task = asyncio.create_task(poller.run())
