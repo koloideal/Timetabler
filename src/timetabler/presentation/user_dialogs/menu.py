@@ -27,9 +27,16 @@ from timetabler.application.services.lesson_timing import first_event, now_statu
 from timetabler.application.services.poller import next_study_day, schedule_today
 from timetabler.application.services.study_group import StudyGroupService
 from timetabler.application.services.user import UserService
+from timetabler.domain.browse import (
+    day_audiences,
+    day_teachers,
+    lessons_for_audience,
+    lessons_for_teacher,
+)
 from timetabler.domain.schemas import DaySchedule, ResolvedLesson, User
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.presentation.messages import (
+    format_browse_schedule,
     group_messages,
     note_blocks,
     now_status_text,
@@ -45,6 +52,9 @@ class UserMenuSG(StatesGroup):
     main = State()
     pick_main = State()
     groups = State()
+    browse = State()
+    browse_day = State()
+    browse_pick = State()
 
 
 def _onboarding(dialog_manager: DialogManager) -> bool:
@@ -436,6 +446,135 @@ async def on_groups_done(
     await manager.switch_to(UserMenuSG.main)
 
 
+_BROWSE_KINDS = {"teacher": "👤 Преподаватель", "audience": "🚪 Аудитория"}
+
+
+@inject
+async def get_browse_day_data(
+    dialog_manager: DialogManager,
+    app_config: FromDishka[AppConfig],
+    **kwargs: object,
+) -> dict[str, object]:
+    kind = str(dialog_manager.dialog_data.get("browse_kind", "teacher"))
+    today = schedule_today(app_config.revisions.update_timezone)
+    next_date = next_study_day(today)
+    return {
+        "kind_label": _BROWSE_KINDS.get(kind, kind),
+        "tomorrow_btn": (
+            "📅 Завтра" if next_date == today + timedelta(days=1)
+            else "📅 Послезавтра"
+        ),
+    }
+
+
+async def _browse_kind_click(
+    manager: DialogManager, kind: str
+) -> None:
+    manager.dialog_data["browse_kind"] = kind
+    await manager.switch_to(UserMenuSG.browse_day)
+
+
+async def on_browse_teacher(
+    call: CallbackQuery, button: Button, manager: DialogManager
+) -> None:
+    await _browse_kind_click(manager, "teacher")
+
+
+async def on_browse_audience(
+    call: CallbackQuery, button: Button, manager: DialogManager
+) -> None:
+    await _browse_kind_click(manager, "audience")
+
+
+async def _browse_day_click(
+    manager: DialogManager, for_date: date
+) -> None:
+    manager.dialog_data["browse_date"] = for_date.isoformat()
+    await manager.switch_to(UserMenuSG.browse_pick)
+
+
+@inject
+async def on_browse_today(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    app_config: FromDishka[AppConfig],
+) -> None:
+    await _browse_day_click(
+        manager, schedule_today(app_config.revisions.update_timezone)
+    )
+
+
+@inject
+async def on_browse_tomorrow(
+    call: CallbackQuery,
+    button: Button,
+    manager: DialogManager,
+    app_config: FromDishka[AppConfig],
+) -> None:
+    await _browse_day_click(
+        manager,
+        next_study_day(schedule_today(app_config.revisions.update_timezone)),
+    )
+
+
+@inject
+async def get_browse_pick_data(
+    dialog_manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
+    **kwargs: object,
+) -> dict[str, object]:
+    kind = str(dialog_manager.dialog_data.get("browse_kind", "teacher"))
+    raw_date = dialog_manager.dialog_data.get("browse_date")
+    for_date = (
+        date.fromisoformat(str(raw_date))
+        if raw_date
+        else schedule_today(app_config.revisions.update_timezone)
+    )
+    day = await broadcast_service.day_schedule(for_date)
+    entities = day_teachers(day) if kind == "teacher" else day_audiences(day)
+    weekday = app_config.weekdays_short[for_date.weekday()]
+    return {
+        "title": (
+            f"{_BROWSE_KINDS.get(kind, kind)} · "
+            f"{for_date.strftime('%d.%m.%Y')} ({weekday})"
+        ),
+        "entities": [(e, e) for e in entities],
+        "has_entities": bool(entities),
+    }
+
+
+@inject
+async def on_browse_entity(
+    call: CallbackQuery,
+    widget: Select,
+    manager: DialogManager,
+    item_id: str,
+    broadcast_service: FromDishka[BroadcastService],
+    notifier: FromDishka[TelegramNotifier],
+    app_config: FromDishka[AppConfig],
+) -> None:
+    kind = str(manager.dialog_data.get("browse_kind", "teacher"))
+    for_date = date.fromisoformat(str(manager.dialog_data["browse_date"]))
+    day = await broadcast_service.day_schedule(for_date)
+    lessons = (
+        lessons_for_teacher(day, item_id)
+        if kind == "teacher"
+        else lessons_for_audience(day, item_id)
+    )
+    if not lessons:
+        await call.answer("❌ Нет занятий", show_alert=True)
+        return
+    blocks = format_browse_schedule(
+        kind, item_id, for_date, lessons, day, app_config
+    )
+    if day.updated_label:
+        blocks = blocks + note_blocks(day.updated_label)
+    await notifier.send_rich_message(call.from_user.id, blocks)
+    await call.answer()
+
+
 def build_user_menu_dialog() -> Dialog:
     return Dialog(
         Window(
@@ -454,6 +593,7 @@ def build_user_menu_dialog() -> Dialog:
             Row(
                 SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
                 Button(Const("💬 Чаты"), id="u_chats", on_click=on_my_chats),
+                SwitchTo(Const("🔍 Поиск"), id="u_browse", state=UserMenuSG.browse),
             ),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
             state=UserMenuSG.main,
@@ -549,5 +689,69 @@ def build_user_menu_dialog() -> Dialog:
             ),
             state=UserMenuSG.groups,
             getter=get_user_groups_data,
+        ),
+        Window(
+            Const(
+                "<b>🔍 Поиск по расписанию</b>\n\n"
+                "Покажу занятия за выбранный день — по преподавателю "
+                "или по аудитории:"
+            ),
+            Row(
+                Button(
+                    Const("👤 Преподаватель"),
+                    id="br_teacher",
+                    on_click=on_browse_teacher,
+                ),
+                Button(
+                    Const("🚪 Аудитория"),
+                    id="br_audience",
+                    on_click=on_browse_audience,
+                ),
+            ),
+            SwitchTo(Const("◀️ Назад"), id="br_back", state=UserMenuSG.main),
+            state=UserMenuSG.browse,
+        ),
+        Window(
+            Format("<b>🔍 {kind_label}</b>\n\nВыберите день:"),
+            Row(
+                Button(
+                    Const("📅 Сегодня"), id="br_today", on_click=on_browse_today
+                ),
+                Button(
+                    Format("{tomorrow_btn}"),
+                    id="br_tomorrow",
+                    on_click=on_browse_tomorrow,
+                ),
+            ),
+            SwitchTo(Const("◀️ Назад"), id="br_day_back", state=UserMenuSG.browse),
+            state=UserMenuSG.browse_day,
+            getter=get_browse_day_data,
+        ),
+        Window(
+            Format("<b>🔍 {title}</b>", when=F["has_entities"]),
+            Const(
+                "<b>🔍 Поиск по расписанию</b>\n\n"
+                "За этот день расписания пока нет.",
+                when=~F["has_entities"],
+            ),
+            ScrollingGroup(
+                Select(
+                    Format("{item[1]}"),
+                    id="br_entity",
+                    item_id_getter=lambda x: x[0],
+                    items="entities",
+                    on_click=on_browse_entity,
+                ),
+                id="br_scroll",
+                width=2,
+                height=8,
+                hide_on_single_page=True,
+                when=F["has_entities"],
+            ),
+            SwitchTo(
+                Const("◀️ Назад"), id="br_pick_back", state=UserMenuSG.browse_day
+            ),
+            state=UserMenuSG.browse_pick,
+            getter=get_browse_pick_data,
         ),
     )

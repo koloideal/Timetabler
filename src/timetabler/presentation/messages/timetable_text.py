@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 
 from timetabler.application.services.lesson_timing import format_range, format_time
-from timetabler.domain.schemas import NowStatus, ResolvedLesson
+from timetabler.domain.schemas import DaySchedule, NowStatus, ResolvedLesson
 from timetabler.infrastructure.config.app import AppConfig
 
 
@@ -262,6 +262,64 @@ def build_channel_blocks(
         for label, body in parts
     ]
     return blocks
+
+
+def _browse_pos_label(lesson: ResolvedLesson) -> str:
+    if lesson.slot is not None:
+        return str(lesson.slot)
+    return "–" if lesson.position is None else str(lesson.position)
+
+
+def format_browse_schedule(
+    kind: str,
+    entity: str,
+    for_date: date,
+    lessons: list[ResolvedLesson],
+    day: DaySchedule,
+    config: AppConfig,
+) -> list[InputRichBlockUnion]:
+    weekday = config.weekdays_short[for_date.weekday()]
+    icon, title = ("👤", entity) if kind == "teacher" else ("🚪", f"Ауд. {entity}")
+    cells = [
+        [
+            _cell(h, align=a, header=True)
+            for h, a in zip(
+                ["№", "Группа", "Предмет", "Ауд. · Время" if kind == "teacher" else "Время"],
+                ["center", "center", "left", "center"],
+            )
+        ]
+    ]
+    used = _row_text_len(cells[0])
+    for lesson in lessons:
+        subject: RichTextUnion
+        details: RichTextUnion | None
+        if kind == "teacher":
+            subject = RichTextBold(text=lesson.subject)
+            details = _details_text(lesson, day.audiences.get(lesson.group_id))
+        else:
+            subject = _subject_text(lesson)
+            details = (
+                RichTextItalic(text=format_range(lesson.start, lesson.end))
+                if lesson.start is not None
+                else "—"
+            )
+        row = [
+            _cell(RichTextBold(text=_browse_pos_label(lesson))),
+            _cell(str(lesson.group_id)),
+            _cell(subject, align="left"),
+            _cell(details),
+        ]
+        used += _row_text_len(row)
+        if used > config.rich_message_limit:
+            break
+        cells.append(row)
+    return [
+        InputRichBlockSectionHeading(
+            text=f"{icon} {title} · {for_date.strftime('%d.%m.%Y')} ({weekday})",
+            size=2,
+        ),
+        InputRichBlockTable(cells=cells, is_bordered=True, is_striped=True, is_compact=True),
+    ]
 
 
 def note_blocks(note: str, top: bool = False) -> list[InputRichBlockUnion]:

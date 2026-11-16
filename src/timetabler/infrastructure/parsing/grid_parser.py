@@ -12,17 +12,27 @@ class GridScheduleParser:
         self.config = config
         self._group_re = re.compile(config.grid.group_pattern)
         self._boundary_re = re.compile(config.grid.boundary_pattern, re.IGNORECASE)
+        self._latin_re = re.compile(config.grid.subject_latin_pattern)
+        self._cyrillic_re = re.compile(config.grid.subject_cyrillic_pattern)
         self._logger = logging.getLogger(__name__)
 
     def parse(self, values: list[list[object]], default_date: date) -> ParsedTimetable:
         parsed = ParsedTimetable()
         group_id: int | None = None
         seen_group = False
+        empty_streak = 0
         grid = self.config.grid
 
         for row_no, raw_row in enumerate(values, start=1):
             row = list(raw_row[:grid.main_columns])
             row += [None] * (grid.main_columns - len(row))
+
+            if all(self._text(c) is None for c in row):
+                empty_streak += 1
+                if empty_streak >= grid.gap_reset_rows:
+                    group_id = None
+                continue
+            empty_streak = 0
 
             label = self._text(row[grid.group_col])
             if label is not None:
@@ -46,6 +56,18 @@ class GridScheduleParser:
                     group_id = None
 
             subject = self._text(row[grid.subject_col])
+            if (
+                subject is not None
+                and seen_group
+                and self._latin_re.search(subject) is not None
+                and self._cyrillic_re.search(subject) is None
+            ):
+                self._logger.info(
+                    "Grid truncated at row %s: latin-only subject %r — "
+                    "schedule content is over",
+                    row_no, subject,
+                )
+                break
             if group_id is None or subject is None:
                 continue
 

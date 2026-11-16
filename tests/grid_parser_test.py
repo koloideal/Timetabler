@@ -119,3 +119,56 @@ def test_normal_rows_still_parse():
     assert (1, 1) in by_sg and (1, 2) in by_sg and (2, None) in by_sg
     assert {e.group_id for e in parsed.entries} == {2124, 3125}
     assert parsed.base_audiences == {2124: "31", 3125: "8"}
+
+
+def test_latin_subject_ends_document():
+    values = [
+        ["5125, ауд. 11", "1.", "Астрономия", None, "Гиль Т.В."],
+        ["", "4.", "Иностранный язык", None, "Бохан О.А."],
+        [""] * 10,
+        ["", "", "Material icon theme"],
+        ["", "", "jQuery 3.7"],
+    ]
+    parsed = _parser().parse(values, D)
+    assert [e.subject for e in parsed.entries] == ["Астрономия", "Иностранный язык"]
+
+
+def test_latin_subject_before_first_group_ignored():
+    values = [
+        ["", "", "scratch note in latin"],
+        ["2124", "1.", "Математика"],
+    ]
+    parsed = _parser().parse(values, D)
+    assert [e.subject for e in parsed.entries] == ["Математика"]
+
+
+def test_mixed_cyrillic_latin_subject_kept():
+    values = [
+        ["2124", "1.", "СУБД PostgreSQL"],
+    ]
+    parsed = _parser().parse(values, D)
+    assert [e.subject for e in parsed.entries] == ["СУБД PostgreSQL"]
+
+
+def test_empty_gap_resets_group_context():
+    values = [
+        ["2123, ауд. 5"],
+        ["", "", "ПРАКТИКА"],
+        *[[]] * 10,
+        ["", "", "Заметка не из расписания"],
+        ["3125, ауд. 8", "1.", "Делопроизводство"],
+    ]
+    parsed = _parser().parse(values, D)
+    subjects = [e.subject for e in parsed.entries]
+    assert subjects == ["ПРАКТИКА", "Делопроизводство"]
+    assert {e.group_id for e in parsed.entries} == {2123, 3125}
+
+
+def test_short_empty_gap_keeps_context():
+    values = [
+        ["2124", "1.", "ОС", None, "Винник Р.А."],
+        *[[]] * 5,
+        ["", "2.", "Математика"],
+    ]
+    parsed = _parser().parse(values, D)
+    assert [e.subject for e in parsed.entries] == ["ОС", "Математика"]
