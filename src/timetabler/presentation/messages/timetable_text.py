@@ -322,6 +322,53 @@ def format_browse_schedule(
     ]
 
 
+def browse_result_text(
+    kind: str,
+    entity: str,
+    for_date: date,
+    lessons: list[ResolvedLesson],
+    day: DaySchedule,
+    config: AppConfig,
+) -> str:
+    weekday = config.weekdays_short[for_date.weekday()]
+    head = (
+        f"👤 <b>{entity}</b>" if kind == "teacher" else f"🚪 <b>Ауд. {entity}</b>"
+    )
+    lines = [
+        f"{head} · {for_date.strftime('%d.%m.%Y')} ({weekday})",
+        "",
+    ]
+    for lesson in lessons:
+        rng = (
+            format_range(lesson.start, lesson.end)
+            if lesson.start is not None
+            else None
+        )
+        line = (
+            f"{_browse_pos_label(lesson)} · {lesson.group_id} — "
+            f"<b>{lesson.subject}</b>"
+        )
+        tail: list[str] = []
+        if kind == "teacher":
+            aud = (
+                None
+                if lesson.kind == "pe"
+                else lesson.audience or day.audiences.get(lesson.group_id)
+            )
+            if aud:
+                tail.append(f"ауд. {aud}")
+        elif lesson.teacher:
+            line += f". {lesson.teacher}"
+        if rng:
+            tail.append(f"<i>{rng}</i>")
+        if tail:
+            line += " · " + " · ".join(tail)
+        lines.append(line)
+    if day.updated_label:
+        lines += ["", f"<i>🔄 {day.updated_label}</i>"]
+    return "\n".join(lines)
+
+
 def note_blocks(note: str, top: bool = False) -> list[InputRichBlockUnion]:
     paragraph = InputRichBlockParagraph(text=[RichTextItalic(text=f"🔄 {note}")])
     divider = InputRichBlockDivider()

@@ -36,7 +36,7 @@ from timetabler.domain.browse import (
 from timetabler.domain.schemas import DaySchedule, ResolvedLesson, User
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.presentation.messages import (
-    format_browse_schedule,
+    browse_result_text,
     group_messages,
     note_blocks,
     now_status_text,
@@ -55,6 +55,7 @@ class UserMenuSG(StatesGroup):
     browse = State()
     browse_day = State()
     browse_pick = State()
+    browse_result = State()
 
 
 def _onboarding(dialog_manager: DialogManager) -> bool:
@@ -518,6 +519,11 @@ async def on_browse_tomorrow(
     )
 
 
+def _browse_context(manager: DialogManager) -> tuple[str, date]:
+    kind = str(manager.dialog_data.get("browse_kind", "teacher"))
+    return kind, date.fromisoformat(str(manager.dialog_data["browse_date"]))
+
+
 @inject
 async def get_browse_pick_data(
     dialog_manager: DialogManager,
@@ -525,13 +531,7 @@ async def get_browse_pick_data(
     app_config: FromDishka[AppConfig],
     **kwargs: object,
 ) -> dict[str, object]:
-    kind = str(dialog_manager.dialog_data.get("browse_kind", "teacher"))
-    raw_date = dialog_manager.dialog_data.get("browse_date")
-    for_date = (
-        date.fromisoformat(str(raw_date))
-        if raw_date
-        else schedule_today(app_config.revisions.update_timezone)
-    )
+    kind, for_date = _browse_context(dialog_manager)
     day = await broadcast_service.day_schedule(for_date)
     entities = day_teachers(day) if kind == "teacher" else day_audiences(day)
     weekday = app_config.weekdays_short[for_date.weekday()]
@@ -542,37 +542,40 @@ async def get_browse_pick_data(
         ),
         "entities": [(e, e) for e in entities],
         "has_entities": bool(entities),
+        "is_teacher": kind == "teacher",
     }
 
 
-@inject
 async def on_browse_entity(
     call: CallbackQuery,
     widget: Select,
     manager: DialogManager,
     item_id: str,
-    broadcast_service: FromDishka[BroadcastService],
-    notifier: FromDishka[TelegramNotifier],
-    app_config: FromDishka[AppConfig],
 ) -> None:
-    kind = str(manager.dialog_data.get("browse_kind", "teacher"))
-    for_date = date.fromisoformat(str(manager.dialog_data["browse_date"]))
+    manager.dialog_data["browse_entity"] = item_id
+    await manager.switch_to(UserMenuSG.browse_result)
+
+
+@inject
+async def get_browse_result_data(
+    dialog_manager: DialogManager,
+    broadcast_service: FromDishka[BroadcastService],
+    app_config: FromDishka[AppConfig],
+    **kwargs: object,
+) -> dict[str, object]:
+    kind, for_date = _browse_context(dialog_manager)
+    entity = str(dialog_manager.dialog_data.get("browse_entity", ""))
     day = await broadcast_service.day_schedule(for_date)
     lessons = (
-        lessons_for_teacher(day, item_id)
+        lessons_for_teacher(day, entity)
         if kind == "teacher"
-        else lessons_for_audience(day, item_id)
+        else lessons_for_audience(day, entity)
     )
-    if not lessons:
-        await call.answer("❌ Нет занятий", show_alert=True)
-        return
-    blocks = format_browse_schedule(
-        kind, item_id, for_date, lessons, day, app_config
-    )
-    if day.updated_label:
-        blocks = blocks + note_blocks(day.updated_label)
-    await notifier.send_rich_message(call.from_user.id, blocks)
-    await call.answer()
+    return {
+        "result_text": browse_result_text(
+            kind, entity, for_date, lessons, day, app_config
+        ),
+    }
 
 
 def build_user_menu_dialog() -> Dialog:
@@ -593,9 +596,9 @@ def build_user_menu_dialog() -> Dialog:
             Row(
                 SwitchTo(Const("🎓 Подписки"), id="u_groups", state=UserMenuSG.groups),
                 Button(Const("💬 Чаты"), id="u_chats", on_click=on_my_chats),
-                SwitchTo(Const("🔍 Поиск"), id="u_browse", state=UserMenuSG.browse),
             ),
             Button(Format("{notifications_btn}"), id="u_notify", on_click=on_toggle_notifications),
+            SwitchTo(Const("🔍 Поиск"), id="u_browse", state=UserMenuSG.browse),
             state=UserMenuSG.main,
             getter=get_user_menu_data,
         ),
@@ -696,17 +699,15 @@ def build_user_menu_dialog() -> Dialog:
                 "Покажу занятия за выбранный день — по преподавателю "
                 "или по аудитории:"
             ),
-            Row(
-                Button(
-                    Const("👤 Преподаватель"),
-                    id="br_teacher",
-                    on_click=on_browse_teacher,
-                ),
-                Button(
-                    Const("🚪 Аудитория"),
-                    id="br_audience",
-                    on_click=on_browse_audience,
-                ),
+            Button(
+                Const("👤 Преподаватель"),
+                id="br_teacher",
+                on_click=on_browse_teacher,
+            ),
+            Button(
+                Const("🚪 Аудитория"),
+                id="br_audience",
+                on_click=on_browse_audience,
             ),
             SwitchTo(Const("◀️ Назад"), id="br_back", state=UserMenuSG.main),
             state=UserMenuSG.browse,
@@ -737,21 +738,43 @@ def build_user_menu_dialog() -> Dialog:
             ScrollingGroup(
                 Select(
                     Format("{item[1]}"),
-                    id="br_entity",
+                    id="br_entity_t",
                     item_id_getter=lambda x: x[0],
                     items="entities",
                     on_click=on_browse_entity,
                 ),
-                id="br_scroll",
+                id="br_scroll_t",
                 width=2,
                 height=8,
                 hide_on_single_page=True,
-                when=F["has_entities"],
+                when=F["has_entities"] & F["is_teacher"],
+            ),
+            ScrollingGroup(
+                Select(
+                    Format("{item[1]}"),
+                    id="br_entity_a",
+                    item_id_getter=lambda x: x[0],
+                    items="entities",
+                    on_click=on_browse_entity,
+                ),
+                id="br_scroll_a",
+                width=3,
+                height=8,
+                hide_on_single_page=True,
+                when=F["has_entities"] & ~F["is_teacher"],
             ),
             SwitchTo(
                 Const("◀️ Назад"), id="br_pick_back", state=UserMenuSG.browse_day
             ),
             state=UserMenuSG.browse_pick,
             getter=get_browse_pick_data,
+        ),
+        Window(
+            Format("{result_text}"),
+            SwitchTo(
+                Const("◀️ Назад"), id="br_res_back", state=UserMenuSG.browse_pick
+            ),
+            state=UserMenuSG.browse_result,
+            getter=get_browse_result_data,
         ),
     )
