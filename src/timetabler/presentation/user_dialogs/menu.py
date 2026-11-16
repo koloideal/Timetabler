@@ -36,7 +36,7 @@ from timetabler.domain.browse import (
 from timetabler.domain.schemas import DaySchedule, ResolvedLesson, User
 from timetabler.infrastructure.config.app import AppConfig
 from timetabler.presentation.messages import (
-    browse_result_text,
+    format_browse_schedule,
     group_messages,
     note_blocks,
     now_status_text,
@@ -55,7 +55,6 @@ class UserMenuSG(StatesGroup):
     browse = State()
     browse_day = State()
     browse_pick = State()
-    browse_result = State()
 
 
 def _onboarding(dialog_manager: DialogManager) -> bool:
@@ -546,36 +545,33 @@ async def get_browse_pick_data(
     }
 
 
+@inject
 async def on_browse_entity(
     call: CallbackQuery,
     widget: Select,
     manager: DialogManager,
     item_id: str,
-) -> None:
-    manager.dialog_data["browse_entity"] = item_id
-    await manager.switch_to(UserMenuSG.browse_result)
-
-
-@inject
-async def get_browse_result_data(
-    dialog_manager: DialogManager,
     broadcast_service: FromDishka[BroadcastService],
+    notifier: FromDishka[TelegramNotifier],
     app_config: FromDishka[AppConfig],
-    **kwargs: object,
-) -> dict[str, object]:
-    kind, for_date = _browse_context(dialog_manager)
-    entity = str(dialog_manager.dialog_data.get("browse_entity", ""))
+) -> None:
+    kind, for_date = _browse_context(manager)
     day = await broadcast_service.day_schedule(for_date)
     lessons = (
-        lessons_for_teacher(day, entity)
+        lessons_for_teacher(day, item_id)
         if kind == "teacher"
-        else lessons_for_audience(day, entity)
+        else lessons_for_audience(day, item_id)
     )
-    return {
-        "result_text": browse_result_text(
-            kind, entity, for_date, lessons, day, app_config
-        ),
-    }
+    if not lessons:
+        await call.answer("❌ Нет занятий", show_alert=True)
+        return
+    blocks = format_browse_schedule(
+        kind, item_id, for_date, lessons, day, app_config
+    )
+    if day.updated_label:
+        blocks = blocks + note_blocks(day.updated_label)
+    await notifier.send_rich_message(call.from_user.id, blocks)
+    await call.answer()
 
 
 def build_user_menu_dialog() -> Dialog:
@@ -768,13 +764,5 @@ def build_user_menu_dialog() -> Dialog:
             ),
             state=UserMenuSG.browse_pick,
             getter=get_browse_pick_data,
-        ),
-        Window(
-            Format("{result_text}"),
-            SwitchTo(
-                Const("◀️ Назад"), id="br_res_back", state=UserMenuSG.browse_pick
-            ),
-            state=UserMenuSG.browse_result,
-            getter=get_browse_result_data,
         ),
     )

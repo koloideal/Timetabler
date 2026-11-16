@@ -15,7 +15,6 @@ from .notifications import (
     revision_approval_markup as revision_approval_markup,
 )
 from .timetable_text import (
-    browse_result_text as browse_result_text,
     format_browse_schedule as format_browse_schedule,
     note_blocks as note_blocks,
     now_status_text as now_status_text,
