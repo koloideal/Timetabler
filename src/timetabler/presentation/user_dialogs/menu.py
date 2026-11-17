@@ -446,7 +446,11 @@ async def on_groups_done(
     await manager.switch_to(UserMenuSG.main)
 
 
-_BROWSE_KINDS = {"teacher": "👤 Преподаватель", "audience": "🚪 Аудитория"}
+_BROWSE_KINDS = {
+    "teacher": "👤 Преподаватель",
+    "audience": "🚪 Аудитория",
+    "group": "🎓 Группа",
+}
 
 
 @inject
@@ -484,6 +488,12 @@ async def on_browse_audience(
     call: CallbackQuery, button: Button, manager: DialogManager
 ) -> None:
     await _browse_kind_click(manager, "audience")
+
+
+async def on_browse_group(
+    call: CallbackQuery, button: Button, manager: DialogManager
+) -> None:
+    await _browse_kind_click(manager, "group")
 
 
 async def _browse_day_click(
@@ -532,7 +542,12 @@ async def get_browse_pick_data(
 ) -> dict[str, object]:
     kind, for_date = _browse_context(dialog_manager)
     day = await broadcast_service.day_schedule(for_date)
-    entities = day_teachers(day) if kind == "teacher" else day_audiences(day)
+    if kind == "teacher":
+        entities = day_teachers(day)
+    elif kind == "audience":
+        entities = day_audiences(day)
+    else:
+        entities = [str(g) for g in sorted(day.by_group)]
     weekday = app_config.weekdays_short[for_date.weekday()]
     return {
         "title": (
@@ -542,6 +557,7 @@ async def get_browse_pick_data(
         "entities": [(e, e) for e in entities],
         "has_entities": bool(entities),
         "is_teacher": kind == "teacher",
+        "is_group": kind == "group",
     }
 
 
@@ -557,6 +573,19 @@ async def on_browse_entity(
 ) -> None:
     kind, for_date = _browse_context(manager)
     day = await broadcast_service.day_schedule(for_date)
+    if kind == "group":
+        messages = group_messages(
+            day, for_date, [item_id], app_config, mode="a", is_compact=True
+        )
+        if not messages:
+            await call.answer("❌ Нет расписания за этот день", show_alert=True)
+            return
+        for blocks, markup in messages:
+            if day.updated_label:
+                blocks = blocks + note_blocks(day.updated_label)
+            await notifier.send_rich_message(call.from_user.id, blocks, markup)
+        await call.answer()
+        return
     lessons = (
         lessons_for_teacher(day, item_id)
         if kind == "teacher"
@@ -692,8 +721,13 @@ def build_user_menu_dialog() -> Dialog:
         Window(
             Const(
                 "<b>🔍 Поиск по расписанию</b>\n\n"
-                "Покажу занятия за выбранный день — по преподавателю "
-                "или по аудитории:"
+                "Покажу занятия за выбранный день — по группе, "
+                "преподавателю или аудитории:"
+            ),
+            Button(
+                Const("🎓 Группа"),
+                id="br_group",
+                on_click=on_browse_group,
             ),
             Button(
                 Const("👤 Преподаватель"),
@@ -757,7 +791,21 @@ def build_user_menu_dialog() -> Dialog:
                 width=3,
                 height=8,
                 hide_on_single_page=True,
-                when=F["has_entities"] & ~F["is_teacher"],
+                when=F["has_entities"] & ~F["is_teacher"] & ~F["is_group"],
+            ),
+            ScrollingGroup(
+                Select(
+                    Format("{item[1]}"),
+                    id="br_entity_g",
+                    item_id_getter=lambda x: x[0],
+                    items="entities",
+                    on_click=on_browse_entity,
+                ),
+                id="br_scroll_g",
+                width=3,
+                height=8,
+                hide_on_single_page=True,
+                when=F["has_entities"] & F["is_group"],
             ),
             SwitchTo(
                 Const("◀️ Назад"), id="br_pick_back", state=UserMenuSG.browse_day
