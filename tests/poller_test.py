@@ -66,20 +66,26 @@ class _Broadcast:
 
 
 class _Revisions:
-    def __init__(self, settling, hidden=()):
+    def __init__(self, settling, session, hidden=()):
         self.settling = settling
+        self.session = session
         self.hidden = list(hidden)
 
     async def get_by_status(self, status):
         return list(self.settling) if status == "settling" else []
 
     async def get_hidden_dates(self, since):
+        if self.session.closed:
+            raise RuntimeError("session used after commit")
         return [d for d in self.hidden if d >= since]
 
 
 class _Session:
+    def __init__(self):
+        self.closed = False
+
     async def commit(self):
-        pass
+        self.closed = True
 
 
 class _Scope:
@@ -101,13 +107,14 @@ class _Container:
         self.detection = _Detection(error)
         self.notifier = _Notifier()
         self.broadcast = _Broadcast()
+        session = _Session()
         self.services = {
             CreatorNotifier: self.notifier,
             SettingsService: _Settings(),
             DetectionService: self.detection,
             BroadcastService: self.broadcast,
-            RevisionService: _Revisions(settling, hidden),
-            AsyncSession: _Session(),
+            RevisionService: _Revisions(settling, session, hidden),
+            AsyncSession: session,
             AppConfig: AppConfig(),
         }
 
@@ -115,6 +122,7 @@ class _Container:
         return self.services[cls]
 
     def __call__(self):
+        self.services[AsyncSession].closed = False
         return _Scope(self.services)
 
 

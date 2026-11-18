@@ -106,10 +106,12 @@ class SheetsPoller:
                     poll_interval, app_config.revisions.settle_poll_seconds
                 )
 
+            hidden_dates = await revision_service.get_hidden_dates(today)
+
             await (await scope.get(AsyncSession)).commit()
             for revision in approved:
                 await broadcast_service.publish_revision(revision)
-            for for_date in await revision_service.get_hidden_dates(today):
+            for for_date in hidden_dates:
                 await broadcast_service.withdraw_day(for_date)
 
         return poll_interval
