@@ -10,7 +10,6 @@ from dishka import FromDishka
 from timetabler.application.services.channel import ChannelService
 from timetabler.application.services.group_chat import GroupChatService
 from timetabler.application.services.user import UserService
-from timetabler.infrastructure.config.models import Config
 from timetabler.presentation.messages import channel_approval_markup, group_setup_markup
 from timetabler.presentation.telegram import TelegramNotifier
 
@@ -27,7 +26,6 @@ def new_group_router() -> Router:
         channel_service: FromDishka[ChannelService],
         user_service: FromDishka[UserService],
         notifier: FromDishka[TelegramNotifier],
-        config: FromDishka[Config],
     ) -> None:
         status = event.new_chat_member.status
 
@@ -36,24 +34,18 @@ def new_group_router() -> Router:
                 await channel_service.register_pending(event.chat.id, event.chat.title)
                 logger.info("Bot added to channel %s (%s)", event.chat.id, event.chat.title)
                 title = event.chat.title or str(event.chat.id)
-                if event.from_user and event.from_user.id == config.bot.creator_id:
-                    await channel_service.approve(event.chat.id)
-                    await notifier.notify_creator(
-                        f"✅ Канал «{title}» одобрен автоматически и включён в рассылку."
-                    )
-                else:
-                    byline = (
-                        f"\n<b>Добавил:</b> @{event.from_user.username}"
-                        if event.from_user and event.from_user.username
-                        else ""
-                    )
-                    await notifier.notify_creator(
-                        f"<b>📢 Новый канал</b>\n\n"
-                        f"<b>Название:</b> {title}\n"
-                        f"<b>ID:</b> <code>{event.chat.id}</code>{byline}\n\n"
-                        "Одобрить?",
-                        reply_markup=channel_approval_markup(event.chat.id),
-                    )
+                byline = (
+                    f"\n<b>Добавил:</b> @{event.from_user.username}"
+                    if event.from_user and event.from_user.username
+                    else ""
+                )
+                await notifier.notify_creator(
+                    f"<b>📢 Новый канал</b>\n\n"
+                    f"<b>Название:</b> {title}\n"
+                    f"<b>ID:</b> <code>{event.chat.id}</code>{byline}\n\n"
+                    "Одобрить?",
+                    reply_markup=channel_approval_markup(event.chat.id),
+                )
             elif status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED):
                 await channel_service.remove(event.chat.id)
                 logger.info("Bot removed from channel %s", event.chat.id)

@@ -172,3 +172,26 @@ def test_short_empty_gap_keeps_context():
     ]
     parsed = _parser().parse(values, D)
     assert [e.subject for e in parsed.entries] == ["ОС", "Математика"]
+
+
+def test_absent_sg2_keeps_sg1_only():
+    values = [["4124, ауд. 15", "1", "Практика", "с 9:00", "Коваленко Н.В.", None, None, "нет"]]
+    [entry] = _parser().parse(values, D).entries
+    assert (entry.subgroup, entry.teacher, entry.starts_at) == (1, "Коваленко Н.В.", time(9, 0))
+
+
+def test_absent_sg1_keeps_sg2_only():
+    values = [["4124", "5", "Практика", None, "Нет.", "12", None, "Соколовский Ю.И.", None]]
+    [entry] = _parser().parse(values, D).entries
+    assert (entry.subgroup, entry.teacher, entry.audience) == (2, "Соколовский Ю.И.", None)
+
+
+def test_absent_sg2_without_sg1_teacher_stays_sg1():
+    values = [["4124", "1", "Практика", None, None, "15", None, "нет", None]]
+    [entry] = _parser().parse(values, D).entries
+    assert (entry.subgroup, entry.audience) == (1, "15")
+
+
+def test_both_absent_yields_nothing():
+    values = [["4124", "1", "Практика", None, "нет", None, None, "нет", None]]
+    assert _parser().parse(values, D).entries == []

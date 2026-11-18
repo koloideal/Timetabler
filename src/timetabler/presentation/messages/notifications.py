@@ -26,10 +26,8 @@ _OPEN_DIFF_ROWS = 12
 def revision_approval_markup(revision_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"rev:approve:{revision_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"rev:reject:{revision_id}"),
-            ]
+            [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"rev:approve:{revision_id}")],
+            [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"rev:reject:{revision_id}")],
         ]
     )
 
@@ -37,10 +35,8 @@ def revision_approval_markup(revision_id: int) -> InlineKeyboardMarkup:
 def channel_approval_markup(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"chan:approve:{chat_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"chan:decline:{chat_id}"),
-            ]
+            [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"chan:approve:{chat_id}")],
+            [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"chan:decline:{chat_id}")],
         ]
     )
 

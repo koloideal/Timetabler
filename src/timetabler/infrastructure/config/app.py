@@ -16,6 +16,8 @@ class GridParserConfig:
     subject_latin_pattern: str = r"[A-Za-z]"
     subject_cyrillic_pattern: str = r"[А-Яа-яЁёЎўІі]"
     skipped_cell_values: tuple[str, ...] = ("", "-", "—")
+    # «нет» в ячейке преподавателя: у этой подгруппы пары нет, пара только у соседней
+    absent_teacher_values: tuple[str, ...] = ("нет",)
 
 
 @dataclass(frozen=True)

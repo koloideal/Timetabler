@@ -84,6 +84,12 @@ class GridScheduleParser:
         text = str(raw).strip()
         return text if text not in self.config.grid.skipped_cell_values else None
 
+    def _absent(self, teacher: str | None) -> bool:
+        return (
+            teacher is not None
+            and teacher.casefold().rstrip(".") in self.config.grid.absent_teacher_values
+        )
+
     def _position(self, raw: object, row_no: int) -> int | None:
         text = self._text(raw)
         if text is None:
@@ -132,12 +138,17 @@ class GridScheduleParser:
         ]
 
         s1, s2 = sets
-        s1_lesson = s1[1] is not None or s1[2] is not None
-        s2_lesson = s2[1] is not None or s2[2] is not None
+        s1_absent, s2_absent = self._absent(s1[2]), self._absent(s2[2])
+        s1_lesson = not s1_absent and (s1[1] is not None or s1[2] is not None)
+        s2_lesson = not s2_absent and (s2[1] is not None or s2[2] is not None)
         if s1_lesson and s2_lesson:
             pass
         elif s2_lesson:
-            sets = [(s2[0], s2[1], s2[2], s2[3] or s1[3])]
+            sets = [(s2[0], s2[1], s2[2], s2[3] or (None if s1_absent else s1[3]))]
+        elif s1_absent:
+            return []
+        elif s2_absent:
+            sets = [s1]
         else:
             sets = [(None, s1[1], s1[2], s1[3] or s2[3])]
 
