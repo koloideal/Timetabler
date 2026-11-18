@@ -148,7 +148,8 @@ def _display_rows(
                 seen.add(key)
                 variants.append(l)
         pos = "–" if block[0].position is None else str(block[0].position)
-        if len(variants) == 1:
+        subgroups = {l.subgroup for l in block}
+        if len(variants) == 1 and (None in subgroups or len(subgroups) > 1):
             rows.append((pos, variants[0], "normal"))
         else:
             rows.append((pos, block[0], "header"))

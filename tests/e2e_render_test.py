@@ -79,3 +79,20 @@ def test_nonsplit_group_subgroup_mode_not_empty():
         rows = texts(schedule_table(lessons, None, CFG, mode, True))
         assert len(rows) == 3, mode
         assert rows[1][2] == '09:00-10:35'
+
+
+def test_single_subgroup_pair_labelled_in_all_mode():
+    lessons = resolved([
+        e(1, "Практика", "Коваленко", None, (9, 0), 1),
+        e(2, "ИТ", "Барсегян", None, (10, 45), 1),
+        e(2, "ИТ", "Барсегян", None, (10, 45), 2),
+        e(3, "Практика", "Соколовский", sg=2),
+    ])
+    rows = texts(schedule_table(lessons, "15", CFG, "a", True))
+    assert rows[1:] == [
+        ['1', 'Практика', ''],
+        ['', '1 п/г · Коваленко', '15 · 09:00-10:35'],
+        ['2', 'ИТ. Барсегян', '15 · 10:45-12:20'],
+        ['3', 'Практика', ''],
+        ['', '2 п/г · Соколовский', '15 · 13:20-14:55'],
+    ]
