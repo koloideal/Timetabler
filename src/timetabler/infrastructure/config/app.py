@@ -95,6 +95,7 @@ _WEEKDAY_SLOTS: tuple[LessonSlotConfig, ...] = (
     LessonSlotConfig("13:20", "14:55", "14:10"),
     LessonSlotConfig("15:05", "16:40", "15:55"),
     LessonSlotConfig("16:50", "18:25", "17:40"),
+    LessonSlotConfig("18:35", "20:10", "19:25"),
 )
 _SATURDAY_SLOTS: tuple[LessonSlotConfig, ...] = (
     LessonSlotConfig("09:00", "10:25"),

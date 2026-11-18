@@ -114,10 +114,10 @@ def test_shift_on_collision():
 def test_off_grid_and_no_slot():
     lessons = resolve([
         e(1, t=(9, 0)), e(2, t=(10, 45)), e(3, t=(13, 20)),
-        e(4, t=(15, 5)), e(5, t=(16, 50)), e(6), e(2, t=(11, 0)),
+        e(4, t=(15, 5)), e(5, t=(16, 50)), e(6, t=(18, 35)), e(7), e(2, t=(11, 0)),
     ])
     by_pos = {l.position: l for l in lessons if "no_slot" in l.flags}
-    assert len(by_pos) == 1 and by_pos[6].slot is None and by_pos[6].start is None
+    assert len(by_pos) == 1 and by_pos[7].slot is None and by_pos[7].start is None
     off = [l for l in lessons if "off_grid" in l.flags]
     assert len(off) == 1 and off[0].slot is None and off[0].end - off[0].start == 5700
 
@@ -194,3 +194,10 @@ def test_now_status_carries_audiences_and_text_shows_them():
     first = first_event(lessons)
     assert first[2] == {"Математика": "204"}
     assert "(ауд. 204)" in now_status_text(now_status(lessons, sec(13)), first)
+
+
+def test_sixth_pair_slot():
+    [lesson] = resolve([e(6)])
+    assert lesson.slot == 6 and format_range(lesson.start, lesson.end) == "18:35-20:10"
+    [pe] = resolve([e(6, "Физическая культура", t=(19, 25))])
+    assert pe.half == "b" and format_range(pe.start, pe.end) == "19:25-20:10"
