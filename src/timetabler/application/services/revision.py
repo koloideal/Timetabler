@@ -24,6 +24,16 @@ class RevisionService:
     async def get_published(self, for_date: date) -> Revision | None:
         return await self.revisions_dao.get_published(for_date)
 
+    async def get_hidden_dates(self, since: date) -> list[date]:
+        return await self.revisions_dao.get_hidden_dates(since)
+
+    async def hide_day(self, for_date: date) -> list[Revision]:
+        for status in ("settling", "pending_approval"):
+            for revision in await self.revisions_dao.get_by_status(status):
+                if revision.for_date == for_date:
+                    await self.revisions_dao.remove(revision.id)
+        return await self.revisions_dao.hide_published(for_date)
+
     async def get_settling(self, for_date: date) -> Revision | None:
         return await self.revisions_dao.get_settling(for_date)
 

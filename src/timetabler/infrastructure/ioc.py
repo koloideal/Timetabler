@@ -170,11 +170,12 @@ class ServicesProvider(Provider):
         notifier: CreatorNotifier,
         revisions_config: RevisionsConfig,
         timing: LessonTimingResolver,
+        config: Config,
     ) -> BroadcastService:
         return BroadcastService(
             sender, session, session_maker, users_dao, group_chats_dao, channels_dao,
             study_groups_dao, revisions_dao, sent_messages_dao, deliveries_dao,
-            notifier, revisions_config, timing,
+            notifier, revisions_config, timing, config.bot.creator_id,
         )
 
     @provide

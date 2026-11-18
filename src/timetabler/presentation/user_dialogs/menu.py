@@ -93,14 +93,14 @@ async def _now_info(
         return ""
     tz = ZoneInfo(app_config.revisions.update_timezone)
     now = datetime.now(tz)
-    day = await broadcast_service.day_schedule(now.date())
+    day = await broadcast_service.day_schedule(now.date(), user.user_id)
     now_sec = now.hour * 3600 + now.minute * 60 + now.second
     status = now_status(_user_lessons(day, user), now_sec)
     next_first = None
     next_label = "завтра"
     if status.kind in {"done", "empty"}:
         next_date = next_study_day(now.date())
-        next_day = await broadcast_service.day_schedule(next_date)
+        next_day = await broadcast_service.day_schedule(next_date, user.user_id)
         next_first = first_event(_user_lessons(next_day, user))
         if next_date != now.date() + timedelta(days=1):
             next_label = (
@@ -209,7 +209,7 @@ async def _show_schedule(
         groups = [str(user.main_group)] + [
             g for g in groups if g != str(user.main_group)
         ]
-    day = await broadcast_service.day_schedule(for_date)
+    day = await broadcast_service.day_schedule(for_date, call.from_user.id)
     messages = group_messages(
         day, for_date, groups, app_config,
         mode=user.subgroup_mode, is_compact=True,
@@ -541,7 +541,8 @@ async def get_browse_pick_data(
     **kwargs: object,
 ) -> dict[str, object]:
     kind, for_date = _browse_context(dialog_manager)
-    day = await broadcast_service.day_schedule(for_date)
+    viewer = dialog_manager.middleware_data.get("event_from_user")
+    day = await broadcast_service.day_schedule(for_date, viewer.id if viewer else None)
     if kind == "teacher":
         entities = day_teachers(day)
     elif kind == "audience":
@@ -572,7 +573,7 @@ async def on_browse_entity(
     app_config: FromDishka[AppConfig],
 ) -> None:
     kind, for_date = _browse_context(manager)
-    day = await broadcast_service.day_schedule(for_date)
+    day = await broadcast_service.day_schedule(for_date, call.from_user.id)
     if kind == "group":
         messages = group_messages(
             day, for_date, [item_id], app_config, mode="a", is_compact=True

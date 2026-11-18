@@ -132,6 +132,10 @@ class FakeNotifier:
     def __init__(self):
         self.approvals = []
         self.errors = []
+        self.messages = []
+
+    async def notify_creator(self, text):
+        self.messages.append(text)
 
     async def ask_revision_approval(self, revision):
         self.approvals.append(revision)
@@ -201,6 +205,18 @@ class FakeRevisionService:
 
     async def delete(self, revision_id):
         return self.revisions.pop(revision_id, None) is not None
+
+    async def hide_day(self, for_date):
+        for r in list(self.revisions.values()):
+            if r.for_date == for_date and r.status in ("settling", "pending_approval"):
+                del self.revisions[r.id]
+        hidden = [
+            r for r in self.revisions.values()
+            if r.for_date == for_date and r.status == "published"
+        ]
+        for r in hidden:
+            r.status = "hidden"
+        return hidden
 
 
 def make_service(values, parsed, *, published=None, published_entries=None,
@@ -399,3 +415,75 @@ async def _test_insane_document_is_reported_once():
     await service.poll_day(FOR_DATE)
     assert len(notifier.errors) == 1
     assert "Подозрительный документ" in notifier.errors[0][0]
+
+
+def _published_with_settling():
+    published = _revision(
+        1, "published", header=_normalize_cell(MARKER), content_hash=_grid_hash(grid(["v1"])),
+    )
+    service, revs, notifier = make_service(
+        grid(["v1"]), ParsedTimetable(entries=[_entry("Математика")]),
+        published=published, published_entries=[_lesson("Математика")],
+        last_hash=_grid_hash(grid(["v1"])),
+    )
+    revs.seed(_revision(2, "settling", content_hash="cand"))
+    return service, revs, notifier
+
+
+def test_stale_date_hides_published_day():
+    asyncio.run(_test_stale_date_hides_published_day())
+
+
+async def _test_stale_date_hides_published_day():
+    service, revs, notifier = _published_with_settling()
+    stale = [["РАСПИСАНИЕ ЗАНЯТИЙ НА 29.10.2026"], ["v1"]]
+    service.sheets_client.values = stale
+
+    assert await service.poll_day(FOR_DATE) is None
+    assert {r.id: r.status for r in revs.revisions.values()} == {1: "hidden"}
+    assert service.sheets_service.source.last_hash == _grid_hash(stale)
+    assert len(notifier.messages) == 1 and "29.10.2026" in notifier.messages[0]
+
+    service.sheets_client.values = [["РАСПИСАНИЕ ЗАНЯТИЙ НА 29.10.2026"], ["v2"]]
+    assert await service.poll_day(FOR_DATE) is None
+    assert len(notifier.messages) == 1
+
+
+def test_unparsable_date_hides_published_day():
+    asyncio.run(_test_unparsable_date_hides_published_day())
+
+
+async def _test_unparsable_date_hides_published_day():
+    service, revs, _ = _published_with_settling()
+    service.sheets_client.values = [["РАСПИСАНИЕ ЗАНЯТИЙ НА ..."], ["v1"]]
+    assert await service.poll_day(FOR_DATE) is None
+    assert revs.revisions[1].status == "hidden"
+
+
+def test_next_week_date_does_not_hide():
+    asyncio.run(_test_next_week_date_does_not_hide())
+
+
+async def _test_next_week_date_does_not_hide():
+    service, revs, notifier = _published_with_settling()
+    service.sheets_client.values = [["РАСПИСАНИЕ ЗАНЯТИЙ НА 12.11.2026"], ["v1"]]
+    assert await service.poll_day(FOR_DATE) is None
+    assert revs.revisions[1].status == "published"
+    assert 2 in revs.revisions
+    assert notifier.messages == []
+
+
+def test_restored_date_republishes_as_new():
+    asyncio.run(_test_restored_date_republishes_as_new())
+
+
+async def _test_restored_date_republishes_as_new():
+    service, revs, _ = _published_with_settling()
+    service.sheets_client.values = [["РАСПИСАНИЕ ЗАНЯТИЙ НА 29.10.2026"], ["v1"]]
+    await service.poll_day(FOR_DATE)
+
+    service.sheets_client.values = grid(["v1"])
+    approved = await service.poll_day(FOR_DATE)
+    assert approved is not None
+    assert approved.kind == "new" and approved.status == "approved"
+    assert revs.revisions[1].status == "hidden"

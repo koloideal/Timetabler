@@ -75,6 +75,9 @@ class SheetsPoller:
             for rev in await revision_service.get_by_status("settling"):
                 if rev.for_date >= today and rev.for_date not in days:
                     days.append(rev.for_date)
+            for hidden_date in await revision_service.get_hidden_dates(today):
+                if hidden_date not in days:
+                    days.append(hidden_date)
             for for_date in days:
                 try:
                     revision = await detection.poll_day(for_date)
@@ -106,6 +109,8 @@ class SheetsPoller:
             await (await scope.get(AsyncSession)).commit()
             for revision in approved:
                 await broadcast_service.publish_revision(revision)
+            for for_date in await revision_service.get_hidden_dates(today):
+                await broadcast_service.withdraw_day(for_date)
 
         return poll_interval
 

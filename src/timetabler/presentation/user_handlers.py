@@ -119,7 +119,7 @@ def new_user_router() -> Router:
             await call.answer()
             return
 
-        day = await broadcast_service.day_schedule(for_date)
+        day = await broadcast_service.day_schedule(for_date, call.from_user.id)
         content = group_content(
             day, for_date, group_id, mode, app_config, is_compact=True
         )

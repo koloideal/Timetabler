@@ -1,4 +1,5 @@
 import hashlib
+import html
 import logging
 import re
 from collections import Counter
@@ -387,6 +388,9 @@ class DetectionService:
                 )
             if marker:
                 await self.sheets_service.mark_header(weekday, marker)
+            if marker_date is None or marker_date < for_date:
+                await self._withdraw(for_date, content_hash, marker)
+                return None
             if settling is not None and self._settle_elapsed(settling):
                 return await self._settle(settling)
             return None
@@ -525,6 +529,25 @@ class DetectionService:
         if kind == "new" and updated is not None:
             return await self._settle(updated)
         return None
+
+    async def _withdraw(self, for_date: date, content_hash: str, marker: str) -> None:
+        hidden = await self.revision_service.hide_day(for_date)
+        if not hidden:
+            return
+        await self.sheets_service.set_last_hash(for_date.weekday(), content_hash)
+        self._events.info(
+            "🙈 Расписание на %s скрыто (ревизии %s): в шапке %r — ждём валидную дату",
+            for_date.strftime("%d.%m.%Y"), [r.id for r in hidden], marker,
+        )
+        try:
+            await self.notifier.notify_creator(
+                self.config.revisions.hidden_notice_text.format(
+                    date=for_date.strftime("%d.%m.%Y"),
+                    marker=html.escape(marker or "пусто"),
+                )
+            )
+        except Exception:
+            self._logger.exception("Cannot send hidden notice to creator")
 
     def _settle_elapsed(self, revision: Revision) -> bool:
         elapsed = datetime.now(timezone.utc) - revision.detected_at

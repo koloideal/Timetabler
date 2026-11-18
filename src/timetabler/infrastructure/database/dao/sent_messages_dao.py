@@ -23,6 +23,15 @@ class SentMessagesDAO:
         result = await self.session.execute(query)
         return [self._map_to_domain(m) for m in result.scalars().all()]
 
+    async def get_by_date(self, for_date: date) -> list[SentMessage]:
+        query = (
+            select(OrmSentMessage)
+            .where(OrmSentMessage.for_date == for_date)
+            .order_by(OrmSentMessage.id)
+        )
+        result = await self.session.execute(query)
+        return [self._map_to_domain(m) for m in result.scalars().all()]
+
     async def get_for_user_group(
         self, chat_id: int, group: str
     ) -> list[SentMessage]:

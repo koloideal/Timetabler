@@ -52,11 +52,47 @@ class RevisionsDAO:
         return None
 
     async def get_published(self, for_date: date) -> Revision | None:
+        return await self._latest(for_date, "published")
+
+    async def get_hidden(self, for_date: date) -> Revision | None:
+        return await self._latest(for_date, "hidden")
+
+    async def hide_published(self, for_date: date) -> list[Revision]:
+        stmt = (
+            update(OrmRevision)
+            .where(
+                OrmRevision.for_date == for_date,
+                OrmRevision.status == "published",
+            )
+            .values(status="hidden")
+            .returning(OrmRevision)
+        )
+        result = await self.session.execute(stmt)
+        hidden = [self._map_to_domain(r) for r in result.scalars().all()]
+        await self.session.flush()
+        return hidden
+
+    async def get_hidden_dates(self, since: date) -> list[date]:
+        published = select(OrmRevision.for_date).where(OrmRevision.status == "published")
+        query = (
+            select(OrmRevision.for_date)
+            .where(
+                OrmRevision.status == "hidden",
+                OrmRevision.for_date >= since,
+                OrmRevision.for_date.not_in(published),
+            )
+            .distinct()
+            .order_by(OrmRevision.for_date)
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def _latest(self, for_date: date, status: str) -> Revision | None:
         query = (
             select(OrmRevision)
             .where(
                 OrmRevision.for_date == for_date,
-                OrmRevision.status == "published",
+                OrmRevision.status == status,
             )
             .order_by(OrmRevision.id.desc())
             .limit(1)

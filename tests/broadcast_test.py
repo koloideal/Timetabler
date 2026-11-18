@@ -176,15 +176,23 @@ class FakeStudyGroupsDAO:
 
 
 class FakeRevisionsDAO:
-    def __init__(self, entries):
+    def __init__(self, entries, revisions=()):
         self.entries = entries
+        self.revisions = list(revisions)
         self.updated = []
 
     async def get_entries(self, revision_id):
         return list(self.entries)
 
     async def get_published(self, for_date):
-        return None
+        return self._latest(for_date, "published")
+
+    async def get_hidden(self, for_date):
+        return self._latest(for_date, "hidden")
+
+    def _latest(self, for_date, status):
+        found = [r for r in self.revisions if r.for_date == for_date and r.status == status]
+        return max(found, key=lambda r: r.id) if found else None
 
     async def update_fields(self, revision_id, **values):
         self.updated.append(values)
@@ -198,6 +206,9 @@ class FakeSentMessagesDAO:
     async def get_for_day(self, chat_id, for_date):
         return [m for m in self.rows
                 if m.chat_id == chat_id and m.for_date == for_date]
+
+    async def get_by_date(self, for_date):
+        return [m for m in self.rows if m.for_date == for_date]
 
     async def get_for_revision(self, revision_id, chat_id):
         return [m for m in self.rows
@@ -272,8 +283,11 @@ class FakeNotifier:
         self.reports.append(report)
 
 
+CREATOR_ID = 7
+
+
 def make_service(*, users=(_user(),), entries=(_lesson(),),
-                 sender=None, sent=None, chats=()):
+                 sender=None, sent=None, chats=(), revisions=()):
     service = BroadcastService(
         sender or FakeSender(),
         FakeSession(),
@@ -282,12 +296,13 @@ def make_service(*, users=(_user(),), entries=(_lesson(),),
         FakeGroupChatsDAO(chats),
         FakeChannelsDAO(),
         FakeStudyGroupsDAO(),
-        FakeRevisionsDAO(entries),
+        FakeRevisionsDAO(entries, revisions),
         sent or FakeSentMessagesDAO(),
         FakeDeliveriesDAO(),
         FakeNotifier(),
         RevisionsConfig(send_delay_seconds=0),
         None,
+        CREATOR_ID,
     )
     return service
 
@@ -370,7 +385,7 @@ async def _test_badrequest_failure_does_not_disable_chat():
         FakeUsersDAO([]), chats, FakeChannelsDAO(), FakeStudyGroupsDAO(),
         FakeRevisionsDAO([_lesson()]), FakeSentMessagesDAO(),
         FakeDeliveriesDAO(), FakeNotifier(),
-        RevisionsConfig(send_delay_seconds=0), None,
+        RevisionsConfig(send_delay_seconds=0), None, CREATOR_ID,
     )
     result = await service._deliver_group_chat(
         chat, FOR_DATE, await service.day_schedule(FOR_DATE),
@@ -407,7 +422,7 @@ async def _test_forbidden_disables_chat():
         FakeUsersDAO([]), chats, FakeChannelsDAO(), FakeStudyGroupsDAO(),
         FakeRevisionsDAO([_lesson()]), FakeSentMessagesDAO(),
         FakeDeliveriesDAO(), FakeNotifier(),
-        RevisionsConfig(send_delay_seconds=0), None,
+        RevisionsConfig(send_delay_seconds=0), None, CREATOR_ID,
     )
     result = await service._deliver_group_chat(
         chat, FOR_DATE, await service.day_schedule(FOR_DATE),
@@ -526,3 +541,39 @@ async def _test_publish_sends_report_to_creator_with_stats():
     report = service.notifier.reports[0]
     assert report.revision.id == 1
     assert report.users == (2, 0) and report.chats == (0, 0)
+
+
+def test_withdraw_deletes_everything_but_creator_messages():
+    asyncio.run(_test_withdraw_deletes_everything_but_creator_messages())
+
+
+async def _test_withdraw_deletes_everything_but_creator_messages():
+    sent = FakeSentMessagesDAO()
+    await sent.add(1, FOR_DATE, -100, 10, "channel", ["2124"])
+    await sent.add(1, FOR_DATE, -200, 20, "chat", ["2124"])
+    await sent.add(1, FOR_DATE, 42, 30, "dm", ["2124"])
+    await sent.add(1, FOR_DATE, CREATOR_ID, 40, "dm", ["2124"])
+    await sent.add(2, date(2026, 11, 6), 42, 50, "dm", ["2124"])
+    sender = FakeSender()
+    service = make_service(sender=sender, sent=sent)
+
+    await service._withdraw(FOR_DATE)
+
+    assert sender.deleted == [(-100, 10), (-200, 20), (42, 30)]
+    assert [m.message_id for m in sent.rows] == [40, 50]
+
+
+def test_hidden_day_visible_only_to_creator():
+    asyncio.run(_test_hidden_day_visible_only_to_creator())
+
+
+async def _test_hidden_day_visible_only_to_creator():
+    service = make_service(
+        revisions=[_revision(status="hidden", published_at=datetime.now(timezone.utc))]
+    )
+
+    assert (await service.day_schedule(FOR_DATE)).by_group == {}
+    assert (await service.day_schedule(FOR_DATE, 42)).by_group == {}
+    day = await service.day_schedule(FOR_DATE, CREATOR_ID)
+    assert set(day.by_group) == {2124}
+    assert day.updated_label == RevisionsConfig().hidden_note

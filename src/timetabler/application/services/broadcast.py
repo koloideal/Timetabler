@@ -46,6 +46,7 @@ class BroadcastService:
         notifier: CreatorNotifier,
         config: RevisionsConfig,
         timing: LessonTimingResolver,
+        creator_id: int,
     ) -> None:
         self.sender = sender
         self.session = session
@@ -60,6 +61,7 @@ class BroadcastService:
         self.notifier = notifier
         self.config = config
         self.timing = timing
+        self.creator_id = creator_id
         self._logger = logging.getLogger(__name__)
         self._events = logging.getLogger("events")
 
@@ -93,11 +95,18 @@ class BroadcastService:
             updated_label=updated_label,
         )
 
-    async def day_schedule(self, for_date: date) -> DaySchedule:
+    async def day_schedule(
+        self, for_date: date, viewer_id: int | None = None
+    ) -> DaySchedule:
         revision = await self.revisions_dao.get_published(for_date)
+        if revision is None and viewer_id == self.creator_id:
+            revision = await self.revisions_dao.get_hidden(for_date)
         if revision is None:
             return await self._build_day([], {})
-        return await self.revision_schedule(revision)
+        day = await self.revision_schedule(revision)
+        if revision.status == "hidden":
+            day.updated_label = self.config.hidden_note
+        return day
 
     async def revision_schedule(self, revision: Revision) -> DaySchedule:
         entries = await self.revisions_dao.get_entries(revision.id)
@@ -128,13 +137,33 @@ class BroadcastService:
         async with self.session_maker() as session:
             await self._with_session(session)._publish(revision)
 
+    async def withdraw_day(self, for_date: date) -> None:
+        async with self.session_maker() as session:
+            await self._with_session(session)._withdraw(for_date)
+
+    async def _withdraw(self, for_date: date) -> None:
+        removed = 0
+        for message in await self.sent_messages_dao.get_by_date(for_date):
+            if message.chat_id == self.creator_id:
+                continue
+            await self.sender.delete_message(message.chat_id, message.message_id)
+            await self.sent_messages_dao.remove(message.id)
+            await self.session.commit()
+            removed += 1
+            await asyncio.sleep(self.config.send_delay_seconds)
+        if removed:
+            self._events.info(
+                "🙈 Расписание на %s скрыто: удалено сообщений %s",
+                for_date.strftime("%d.%m.%Y"), removed,
+            )
+
     def _with_session(self, session: AsyncSession) -> "BroadcastService":
         return BroadcastService(
             self.sender, session, self.session_maker,
             UsersDAO(session), GroupChatsDAO(session), ChannelsDAO(session),
             StudyGroupsDAO(session), RevisionsDAO(session),
             SentMessagesDAO(session), DeliveriesDAO(session),
-            self.notifier, self.config, self.timing,
+            self.notifier, self.config, self.timing, self.creator_id,
         )
 
     @staticmethod

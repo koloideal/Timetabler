@@ -617,7 +617,8 @@ async def _open_schedule_day(
     for_date: date,
     broadcast_service: BroadcastService,
 ) -> None:
-    day = await broadcast_service.day_schedule(for_date)
+    viewer = manager.middleware_data.get("event_from_user")
+    day = await broadcast_service.day_schedule(for_date, viewer.id if viewer else None)
     if not day.by_group:
         if isinstance(event, CallbackQuery):
             await event.answer("❌ Нет расписания на этот день", show_alert=True)
@@ -675,7 +676,8 @@ async def get_schedule_view_data(
     **kwargs: object,
 ) -> dict[str, object]:
     target = _picked_schedule_date(dialog_manager, app_config)
-    day = await broadcast_service.day_schedule(target)
+    viewer = dialog_manager.middleware_data.get("event_from_user")
+    day = await broadcast_service.day_schedule(target, viewer.id if viewer else None)
     preview = schedule_preview(day, target, app_config)
     groups = await study_group_service.list_groups()
     weekday = app_config.weekdays_short[target.weekday()]
@@ -698,7 +700,7 @@ async def _send_schedule_preview(
     user_service: UserService,
 ) -> None:
     target = _picked_schedule_date(manager, app_config)
-    day = await broadcast_service.day_schedule(target)
+    day = await broadcast_service.day_schedule(target, call.from_user.id)
     user = await user_service.get_by_id(call.from_user.id)
     mode = user.subgroup_mode if user else "a"
     preview = schedule_preview(
