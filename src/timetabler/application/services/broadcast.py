@@ -142,6 +142,8 @@ class BroadcastService:
             await self._with_session(session)._withdraw(for_date)
 
     async def _withdraw(self, for_date: date) -> None:
+        if await self.revisions_dao.get_published(for_date) is not None:
+            return
         removed = 0
         for message in await self.sent_messages_dao.get_by_date(for_date):
             if message.chat_id == self.creator_id:

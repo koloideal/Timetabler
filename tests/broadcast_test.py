@@ -577,3 +577,23 @@ async def _test_hidden_day_visible_only_to_creator():
     day = await service.day_schedule(FOR_DATE, CREATOR_ID)
     assert set(day.by_group) == {2124}
     assert day.updated_label == RevisionsConfig().hidden_note
+
+
+def test_withdraw_skips_day_republished_in_same_cycle():
+    asyncio.run(_test_withdraw_skips_day_republished_in_same_cycle())
+
+
+async def _test_withdraw_skips_day_republished_in_same_cycle():
+    sent = FakeSentMessagesDAO()
+    await sent.add(37, FOR_DATE, -100, 10, "channel", ["2124"])
+    await sent.add(37, FOR_DATE, 42, 30, "dm", ["2124"])
+    sender = FakeSender()
+    service = make_service(
+        sender=sender, sent=sent,
+        revisions=[_revision(id=35, status="hidden"), _revision(id=37, status="published")],
+    )
+
+    await service._withdraw(FOR_DATE)
+
+    assert sender.deleted == []
+    assert len(sent.rows) == 2
